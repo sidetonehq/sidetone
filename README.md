@@ -8,6 +8,10 @@ small panel in the top-right corner and a full window one click away.
 > approval of Sidetone as a client; until then that part is developed against a private test
 > server only. See [docs/VATSIM.md](docs/VATSIM.md) and the [roadmap](docs/ROADMAP.md).
 
+> **Coming soon:** Windows support for X-Plane 12, and a version for Microsoft Flight
+> Simulator. Sidetone's core, VATSIM data and services code is already simulator- and
+> platform-independent, so both build on the same foundation.
+
 ## Features
 
 - **Panel**: your callsign, COM1/COM2 with the station you'd hear by its spoken name

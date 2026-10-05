@@ -21,8 +21,16 @@
   dedicated command, audio device selection.
 - **On-device transcription** of ATC audio (Apple Silicon), private to the pilot's Mac.
 
+## Near future
+
+- **Windows** support for X-Plane 12. The plugin is Rust and Dear ImGui throughout; the
+  macOS-specific pieces (Keychain storage, build and packaging) get Windows equivalents
+  (Credential Manager, `win_x64` build).
+- **Microsoft Flight Simulator** support. The core, VATSIM data and services crates are
+  already simulator-independent; an MSFS front end would reuse them alongside a SimConnect
+  integration.
+
 ## Later
 
 - Optional premium features may be offered in future, subject to VATSIM's licensing for any
   feature that uses VATSIM data. The client itself stays free.
-- Other simulators. The core, data and services crates are already simulator-independent.
