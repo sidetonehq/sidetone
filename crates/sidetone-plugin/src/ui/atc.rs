@@ -150,6 +150,18 @@ fn along_route(ui: &Ui, m: &mut Model) {
             ui.text_disabled(format!("○  {}", leg.label));
             ui.same_line_with_pos(label_width);
             ui.text_disabled("unstaffed");
+            ui.same_line();
+            let unicom = sidetone_vatsim::freq::UNICOM_KHZ;
+            if m.state.com1.active_khz == unicom || m.state.com2.active_khz == unicom {
+                ui.text_colored(theme::OK, "· on UNICOM ✓");
+            } else {
+                if ui.small_button("Switch to UNICOM") {
+                    m.actions.push(Action::Tune { com: Com::One, khz: unicom });
+                }
+                if ui.is_item_hovered() {
+                    ui.tooltip_text("Tune COM1 to 122.800 and announce your intentions in text or voice");
+                }
+            }
             continue;
         }
         ui.text_colored(theme::OK, "●");
