@@ -36,10 +36,15 @@ pub enum Action {
     TogglePanel,
     ToggleMainWindow,
     SubmitChat(String),
-    Tune { com: Com, khz: i32 },
+    Tune {
+        com: Com,
+        khz: i32,
+    },
     SaveSecret(Secret, Redacted),
     DeleteSecret(Secret),
     ImportSimBrief,
+    /// Clear everything specific to the current flight (keeps the imported SimBrief plan).
+    NewFlight,
     Hoppie(HoppieAction),
     ResetPanelPosition,
     SaveSettings,
@@ -413,6 +418,17 @@ fn apply(
             }
             false
         }
+        Action::NewFlight => {
+            start_new_flight(m);
+            if let Some(plan) = m.simbrief.clone() {
+                m.settings.flight.runway = plan.origin_runway.clone();
+                m.settings.flight.sid = clearance::sid_from_route(&plan.route).unwrap_or_default();
+            }
+            m.recompute_route();
+            autofill_flight(m);
+            m.system_message("New flight started", elapsed_time());
+            true
+        }
         Action::Hoppie(op) => {
             hoppie_action(op, m, services);
             false
@@ -514,18 +530,56 @@ fn on_services(m: &mut Model, update: services::Update, worker: &services::Worke
         services::Update::SimBrief(result) => match result {
             Ok(plan) => {
                 m.simbrief_status = None;
-                m.system_message(format!("Imported SimBrief plan {} {} → {}", plan.callsign, plan.origin, plan.destination), now);
+                start_new_flight(m);
                 let f = &mut m.settings.flight;
-                let mut changed = FlightNotes::fill(&mut f.runway, &plan.origin_runway);
-                if let Some(sid) = clearance::sid_from_route(&plan.route) {
-                    changed |= FlightNotes::fill(&mut f.sid, &sid);
-                }
-                m.settings_dirty |= changed;
+                f.runway = plan.origin_runway.clone();
+                f.sid = clearance::sid_from_route(&plan.route).unwrap_or_default();
+                m.system_message(format!("Imported SimBrief plan {} {} → {}. New flight started.", plan.callsign, plan.origin, plan.destination), now);
                 m.simbrief = Some(plan);
                 m.recompute_route();
+                autofill_flight(m);
+                m.settings_dirty = true;
             }
             Err(e) => m.simbrief_status = Some(e),
         },
+    }
+}
+
+/// A new SimBrief plan means a new flight: clear everything specific to the last one. An
+/// active CPDLC logon is kept, because logging off would send a message to the controller.
+fn start_new_flight(m: &mut Model) {
+    m.settings.flight = FlightNotes::default();
+    m.settings.vatsim.departure.clear();
+    m.settings.vatsim.arrival.clear();
+    let ui = &mut m.ui;
+    ui.cpdlc_callsign.clear();
+    ui.cpdlc_text.clear();
+    ui.cpdlc_level.clear();
+    ui.cpdlc_direct.clear();
+    ui.pdc_stand.clear();
+    m.atc_rows_key = Default::default();
+}
+
+/// Fills the clearance card from live data: the assigned squawk (VATSIM flight plan), the
+/// departure ATIS letter and QNH. Typed values are respected (see `FlightNotes::track`).
+fn autofill_flight(m: &mut Model) {
+    let Some(dep) = m.state.route.departure.clone() else { return };
+    if let Some(snapshot) = m.state.network.snapshot.clone() {
+        if let Some(cid) = m.settings.vatsim.cid
+            && let Some(fp) = snapshot.feed.flight_plan_for(cid)
+            && fp.assigned_transponder != "0000"
+            && fp.departure == dep
+        {
+            m.settings_dirty |= FlightNotes::fill(&mut m.settings.flight.squawk, &fp.assigned_transponder);
+        }
+        if let Some(code) = stations::departure_atis(&snapshot.stations, &dep).and_then(|s| s.atis_code.clone()) {
+            let f = &mut m.settings.flight;
+            m.settings_dirty |= FlightNotes::track(&mut f.atis, &mut f.atis_auto, &code);
+        }
+    }
+    if let Some(qnh) = m.state.network.metars.get(&dep).and_then(|t| clearance::qnh_from_metar(t)) {
+        let f = &mut m.settings.flight;
+        m.settings_dirty |= FlightNotes::track(&mut f.qnh, &mut f.qnh_auto, &qnh);
     }
 }
 
@@ -563,19 +617,7 @@ fn on_vatsim(m: &mut Model, update: Update, now: f32) {
                     m.state.push_message("Sidetone", format!("Found your VATSIM CID ({cid}) from your {callsign} flight"), now);
                 }
             }
-            // Auto-fill the clearance card (only empty fields).
-            if let Some(cid) = m.settings.vatsim.cid
-                && let Some(fp) = snapshot.feed.flight_plan_for(cid)
-                && fp.assigned_transponder != "0000"
-            {
-                m.settings_dirty |= FlightNotes::fill(&mut m.settings.flight.squawk, &fp.assigned_transponder);
-            }
-            if let Some(dep) = m.state.route.departure.clone()
-                && let Some(code) = stations::departure_atis(&snapshot.stations, &dep).and_then(|s| s.atis_code.clone())
-            {
-                let f = &mut m.settings.flight;
-                m.settings_dirty |= FlightNotes::track(&mut f.atis, &mut f.atis_auto, &code);
-            }
+            autofill_flight(m);
         }
         Update::Boundaries(b) => {
             log::info!("FIR boundaries loaded: {}", b.items.len());
@@ -600,13 +642,8 @@ fn on_vatsim(m: &mut Model, update: Update, now: f32) {
                     m.state.push_message("VATSIM", notice, now);
                 }
             }
-            if let Some(dep) = m.state.route.departure.clone()
-                && let Some(qnh) = metars.get(&dep).and_then(|t| clearance::qnh_from_metar(t))
-            {
-                let f = &mut m.settings.flight;
-                m.settings_dirty |= FlightNotes::track(&mut f.qnh, &mut f.qnh_auto, &qnh);
-            }
             m.state.network.metars.extend(metars);
+            autofill_flight(m);
         }
         Update::Stats(cid, stats) => m.state.network.stats = Some((cid, stats)),
         Update::FeedError(error) => m.state.network.feed_error = error,

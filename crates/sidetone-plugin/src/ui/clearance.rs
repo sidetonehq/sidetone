@@ -5,13 +5,14 @@
 use super::{Model, section, tune_buttons};
 use crate::app::Action;
 use sidetone_core::radio::{format_com_khz, format_squawk, is_valid_squawk, phonetic};
-use sidetone_ui::imgui::{InputTextFlags, Ui};
+use sidetone_ui::imgui::{InputTextFlags, TreeNodeFlags, Ui};
 use sidetone_ui::theme;
 use sidetone_vatsim::naming::Facility;
 
 pub fn build(ui: &Ui, m: &mut Model) {
     request(ui, m);
     clearance(ui, m);
+    route(ui, m);
     notes(ui, m);
 }
 
@@ -224,19 +225,85 @@ fn clearance(ui: &Ui, m: &mut Model) {
     }
 }
 
+/// Collapsible route: as filed on VATSIM (what ATC sees) when available, else SimBrief.
+fn route(ui: &Ui, m: &mut Model) {
+    let filed = m.settings.vatsim.cid.and_then(|cid| m.state.network.snapshot.as_ref().and_then(|s| s.feed.flight_plan_for(cid).cloned()));
+    let filed = filed.filter(|fp| !fp.route.trim().is_empty());
+    let simbrief = m.simbrief.clone().filter(|p| !p.route.trim().is_empty());
+    if filed.is_none() && simbrief.is_none() {
+        return;
+    }
+    ui.spacing();
+    if !ui.collapsing_header("Flight plan route", TreeNodeFlags::NONE) {
+        return;
+    }
+    let unit = ui.current_font_size() / theme::FONT_SIZE;
+    let col = 105.0 * unit;
+    let mut block = |ui: &Ui, title: &str, from: &str, to: &str, cruise: &str, alternate: &str, route: &str| {
+        let _id = ui.push_id(title);
+        ui.text_disabled(title);
+        ui.same_line_with_pos(col);
+        let mut summary = format!("{from} → {to}");
+        if !cruise.is_empty() {
+            summary.push_str(&format!(" · {cruise}"));
+        }
+        if !alternate.is_empty() {
+            summary.push_str(&format!(" · alternate {alternate}"));
+        }
+        ui.text(summary);
+        ui.same_line();
+        if ui.small_button("Copy") {
+            sidetone_ui::copy_to_clipboard(route.trim());
+            m.system_message("Route copied", sidetone_xplm::elapsed_time());
+        }
+        let wrap = ui.push_text_wrap_pos(0.0);
+        ui.text_colored(theme::TEXT, route.trim());
+        drop(wrap);
+        ui.spacing();
+    };
+    // VATSIM levels are filed as "35000" or "FL350"; show them the way pilots say them.
+    let level = |raw: &str| match raw.trim().trim_start_matches("FL").parse::<u32>() {
+        Ok(ft) if ft >= 1000 => {
+            if ft >= 18_000 {
+                format!("FL{}", ft / 100)
+            } else {
+                format!("{ft} ft")
+            }
+        }
+        Ok(fl) => format!("FL{fl:03}"),
+        Err(_) => raw.trim().to_string(),
+    };
+    if let Some(fp) = &filed {
+        block(ui, "Filed on VATSIM", &fp.departure, &fp.arrival, &level(&fp.altitude), &fp.alternate, &fp.route);
+    }
+    if let Some(plan) = &simbrief {
+        let differs = filed.as_ref().is_some_and(|fp| normalise(&fp.route) != normalise(&plan.route));
+        if filed.is_none() || differs {
+            if differs {
+                ui.text_colored(theme::WARN, "Your SimBrief route differs from the one filed on VATSIM:");
+            }
+            block(ui, "SimBrief", &plan.origin, &plan.destination, &plan.cruise_label(), &plan.alternate, &plan.route);
+        }
+    }
+}
+
+/// Route text without speed/level groups and DCTs, for comparing filed vs planned.
+fn normalise(route: &str) -> Vec<String> {
+    route.split_whitespace().map(|t| t.split('/').next().unwrap_or(t).to_ascii_uppercase()).filter(|t| t != "DCT" && !t.is_empty()).collect()
+}
+
 fn notes(ui: &Ui, m: &mut Model) {
     section(ui, "NOTES");
     let avail = ui.content_region_avail();
     let footer = ui.frame_height_with_spacing() * 2.0;
     ui.input_text_multiline("##notes", &mut m.settings.flight.notes, [avail[0], (avail[1] - footer).max(60.0)]).build();
-    let mut changed = ui.is_item_deactivated_after_edit();
+    let changed = ui.is_item_deactivated_after_edit();
 
     if ui.button("New flight") {
-        m.settings.flight = sidetone_core::clearance::FlightNotes::default();
-        changed = true;
+        m.actions.push(Action::NewFlight);
     }
     if ui.is_item_hovered() {
-        ui.tooltip_text("Clear the card for your next flight");
+        ui.tooltip_text("Clear this card, your notes and airport overrides for the next flight.\nImporting a SimBrief plan does this automatically.");
     }
     ui.same_line();
     ui.text_wrapped("Filled in from your clearance, SimBrief, VATSIM and METARs. Anything you type wins.");
