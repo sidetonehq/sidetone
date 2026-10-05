@@ -17,7 +17,7 @@ sidetone-vatsim = { path = "crates/sidetone-vatsim" }
 sidetone-services = { path = "crates/sidetone-services" }
 dear-imgui-rs = "0.18"
 serde = { version = "1", features = ["derive"] }
-toml = "0.9"
+toml = "1.1"
 log = "0.4"
 crossbeam-channel = "0.5"
 
