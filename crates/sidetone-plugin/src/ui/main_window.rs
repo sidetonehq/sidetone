@@ -70,8 +70,9 @@ fn header(ui: &Ui, fonts: Fonts, m: &Model) {
     ui.dummy([width, height]);
     ui.same_line();
     ui.align_text_to_frame_padding();
-    let via = m.state.connection_via.map(|v| format!(" via {v}")).unwrap_or_default();
-    let traffic = m.state.nearby_aircraft.map(|n| format!("   {n} aircraft")).unwrap_or_default();
+    let connected = matches!(m.state.connection, sidetone_core::state::Connection::Connected { .. });
+    let via = m.state.connection_via.filter(|_| connected).map(|v| format!(" via {v}")).unwrap_or_default();
+    let traffic = m.state.nearby_aircraft.filter(|n| connected && *n > 0).map(|n| format!("   {n} aircraft")).unwrap_or_default();
     ui.text_disabled(format!(
         "{}{via}   COM1 {}   COM2 {}   XPDR {} {}{traffic}",
         m.state.connection.label(),
