@@ -8,7 +8,7 @@ use sidetone_ui::theme;
 pub fn build(ui: &Ui, m: &mut Model) {
     ui.spacing();
     if !m.simbrief_user_saved {
-        ui.text_disabled("Add your SimBrief username in Settings to import your latest OFP.");
+        ui.text_disabled("Add your SimBrief Pilot ID in Settings to import your latest OFP.");
     }
     let busy = m.simbrief_status.as_deref() == Some("Importing…");
     {

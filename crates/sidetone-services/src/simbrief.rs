@@ -85,7 +85,7 @@ pub fn lookup_param(input: &str) -> (&'static str, &str) {
 fn explain(status: &str) -> String {
     let lower = status.to_ascii_lowercase();
     if lower.contains("unknown userid") || lower.contains("unknown user") {
-        "SimBrief doesn't recognise that username. Check it in Settings, or use your numeric Pilot ID from SimBrief's Account Settings.".into()
+        "SimBrief doesn't recognise that Pilot ID or username. Check it in Settings (simbrief.com → Account Settings).".into()
     } else if lower.contains("no flight") || lower.contains("no ofp") || lower.contains("not found") {
         "No flight plan found on SimBrief. Generate one on simbrief.com first.".into()
     } else if status.is_empty() {
@@ -147,7 +147,7 @@ mod tests {
     #[test]
     fn reports_errors() {
         let err = parse(r#"{"fetch":{"userid":"","status":"Error: Unknown UserID"}}"#).unwrap_err();
-        assert!(err.starts_with("SimBrief doesn't recognise that username"), "{err}");
+        assert!(err.starts_with("SimBrief doesn't recognise that Pilot ID"), "{err}");
         assert!(parse("<html>").is_err());
         assert_eq!(parse(r#"{"fetch":{"status":"Error: Something else"}}"#).unwrap_err(), "SimBrief: Something else");
     }

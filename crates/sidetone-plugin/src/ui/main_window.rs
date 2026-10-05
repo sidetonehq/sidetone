@@ -198,7 +198,11 @@ fn secret_row(ui: &Ui, m: &mut Model, secret: Secret, label: &str, saved: bool, 
     };
     ui.set_next_item_width(180.0 * unit);
     let flags = if masked { InputTextFlags::PASSWORD } else { InputTextFlags::NONE };
-    let hint = if saved { "Saved — type to replace" } else { "" };
+    let hint = match (saved, secret) {
+        (true, _) => "Saved — type to replace",
+        (false, Secret::SimbriefUsername) => "e.g. 123456",
+        (false, Secret::HoppieLogon) => "",
+    };
     let entered = ui.input_text(label, buffer).hint(hint).flags(flags).enter_returns_true(true).build();
     ui.same_line();
     if (ui.small_button("Save") || entered) && !buffer.trim().is_empty() {
@@ -241,9 +245,9 @@ fn settings(ui: &Ui, fonts: Fonts, m: &mut Model) {
 
     ui.spacing();
     ui.text_disabled("SIMBRIEF & HOPPIE (stored in your macOS Keychain)");
-    secret_row(ui, m, Secret::SimbriefUsername, "SimBrief username or Pilot ID", m.simbrief_user_saved, false);
+    secret_row(ui, m, Secret::SimbriefUsername, "SimBrief Pilot ID", m.simbrief_user_saved, false);
     secret_row(ui, m, Secret::HoppieLogon, "Hoppie logon code", m.hoppie_ready, true);
-    ui.text_disabled("Get a free Hoppie logon code at hoppie.nl/acars.");
+    ui.text_disabled("Pilot ID: simbrief.com → Account Settings (your username works too). Hoppie code: free at hoppie.nl/acars.");
 
     ui.spacing();
     ui.text_disabled("INTEGRATIONS");

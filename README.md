@@ -48,7 +48,7 @@ cargo xtask install             # bundle + copy into ~/X-Plane 12 (or --xplane <
 ```
 
 Logs: `X-Plane 12/Output/Sidetone/Sidetone.log`. Settings: `Output/preferences/Sidetone.toml`.
-Secrets (Hoppie logon code, SimBrief username) live in the macOS Keychain.
+Secrets (Hoppie logon code, SimBrief Pilot ID) live in the macOS Keychain.
 
 ## Layout
 

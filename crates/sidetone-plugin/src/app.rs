@@ -408,7 +408,7 @@ fn apply(
                     m.simbrief_status = Some("Importing…".into());
                     services.request(services::Request::FetchSimBrief { username });
                 }
-                None => m.simbrief_status = Some("Add your SimBrief username in Settings first.".into()),
+                None => m.simbrief_status = Some("Add your SimBrief Pilot ID in Settings first.".into()),
             }
             false
         }

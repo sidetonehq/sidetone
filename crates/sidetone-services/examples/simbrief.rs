@@ -13,7 +13,9 @@ fn main() {
     for update in rx {
         if let Update::SimBrief(result) = update {
             match result {
-                Ok(plan) => println!("OK {} {} -> {} ({} fixes, cruise {})", plan.callsign, plan.origin, plan.destination, plan.fixes.len(), plan.cruise_label()),
+                Ok(plan) => {
+                    println!("OK {} {} -> {} ({} fixes, cruise {})", plan.callsign, plan.origin, plan.destination, plan.fixes.len(), plan.cruise_label())
+                }
                 Err(e) => println!("ERR {e}"),
             }
             break;
