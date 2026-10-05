@@ -17,7 +17,11 @@ small panel in the top-right corner and a full window one click away.
 - **Clearance & notes**: squawk, initial altitude, SID, runway, departure frequency, QNH,
   ATIS, stand and notes, auto-filled from PDC/CPDLC clearances, SimBrief, VATSIM and METARs.
 - **CPDLC & PDC** via Hoppie ACARS: logon, handovers, WILCO/UNABLE/STANDBY, requests.
-- **SimBrief** import, **Friends** online alerts, **VATSIM events**, pilot hours.
+- **SimBrief** import, **Friends** online alerts, **VATSIM events**, pilot hours. Your VATSIM
+  CID is found automatically from your live callsign or SimBrief plan.
+- **xPilot companion mode** (optional, off by default): until Sidetone connects natively, show
+  xPilot's connection in the panel, light up COM receive indicators, and use one push-to-talk
+  key for both. Read-only towards the network.
 - Keyboard-friendly: Sidetone only holds the keyboard while you type in a field (Cmd+C/V/X/A/Z
   supported) and hands it back on Enter, Escape or when you move away.
 - Light on the sim: idle UI rebuilds at 15 Hz with cached geometry, logic at 20 Hz, all network

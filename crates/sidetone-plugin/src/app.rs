@@ -229,6 +229,7 @@ impl App {
                     Event::SimLog(_) => {}
                 });
                 sim.read(&mut m.state);
+                bridge_tick(&mut m, now);
                 if now >= next_network_tick {
                     next_network_tick = now + 1.0;
                     network_tick(&mut m, &worker);
@@ -265,6 +266,24 @@ impl App {
         flight_loop.schedule(LOOP_INTERVAL);
 
         App { model, _flight_loop: flight_loop, _handlers: handlers, _menu: menu, panel, main_window, _worker: worker, _services: services, settings_path }
+    }
+}
+
+/// xPilot companion mode: mirror xPilot's connection while the mode is on.
+fn bridge_tick(m: &mut Model, now: f32) {
+    use crate::bridge::xpilot::Notice;
+    let Model { xpilot, state, settings, .. } = m;
+    if !settings.integrations.xpilot_companion {
+        xpilot.release(state);
+        return;
+    }
+    for notice in xpilot.tick(state, now) {
+        let text = match notice {
+            Notice::Connected(callsign) => format!("Connected as {callsign} (via xPilot)"),
+            Notice::Disconnected => "Disconnected from VATSIM (xPilot)".to_string(),
+            Notice::Selcal => "SELCAL received".to_string(),
+        };
+        state.push_message("Sidetone", text, now);
     }
 }
 
@@ -528,6 +547,21 @@ fn on_vatsim(m: &mut Model, update: Update, now: f32) {
             for notice in notices {
                 m.state.push_message("VATSIM", notice, now);
             }
+            // Find the pilot's CID automatically: from the live callsign (xPilot) or SimBrief.
+            if m.settings.vatsim.cid.is_none() {
+                let callsign = match &m.state.connection {
+                    sidetone_core::state::Connection::Connected { callsign } => callsign.clone(),
+                    _ => m.simbrief.as_ref().map(|p| p.callsign.clone()).unwrap_or_default(),
+                };
+                let (dep, arr) = (m.state.route.departure.clone(), m.state.route.arrival.clone());
+                if let Some(cid) = sidetone_core::watch::detect_cid(&snapshot.feed, &callsign, dep.as_deref(), arr.as_deref()) {
+                    m.settings.vatsim.cid = Some(cid);
+                    m.ui.cid_input = cid.to_string();
+                    m.cid_detected = true;
+                    m.settings_dirty = true;
+                    m.state.push_message("Sidetone", format!("Found your VATSIM CID ({cid}) from your {callsign} flight"), now);
+                }
+            }
             // Auto-fill the clearance card (only empty fields).
             if let Some(cid) = m.settings.vatsim.cid
                 && let Some(fp) = snapshot.feed.flight_plan_for(cid)
@@ -674,6 +708,8 @@ fn submit_chat(text: &str, m: &mut Model, sim: &Sim) {
 impl Drop for App {
     fn drop(&mut self) {
         let mut m = self.model.borrow_mut();
+        let Model { xpilot, state, .. } = &mut *m;
+        xpilot.release(state);
         m.settings.panel.visible = self.panel.is_visible();
         if !self.main_window.handle().is_popped_out() {
             let g = self.main_window.handle().geometry();

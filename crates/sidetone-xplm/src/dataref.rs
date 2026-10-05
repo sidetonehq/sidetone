@@ -32,6 +32,21 @@ impl DataRef {
         unsafe { sys::XPLMGetDatad(self.0) }
     }
 
+    /// Reads a byte-array dataref as a string (trailing NULs stripped). Returns "" if empty.
+    pub fn get_string(&self) -> String {
+        let len = unsafe { sys::XPLMGetDatab(self.0, std::ptr::null_mut(), 0, 0) };
+        if len <= 0 {
+            return String::new();
+        }
+        let mut buffer = vec![0u8; len as usize];
+        let read = unsafe { sys::XPLMGetDatab(self.0, buffer.as_mut_ptr() as *mut std::os::raw::c_void, 0, len) };
+        buffer.truncate(read.max(0) as usize);
+        while buffer.last() == Some(&0) {
+            buffer.pop();
+        }
+        String::from_utf8_lossy(&buffer).into_owned()
+    }
+
     pub fn is_writable(&self) -> bool {
         unsafe { sys::XPLMCanWriteDataRef(self.0) != 0 }
     }

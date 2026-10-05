@@ -138,6 +138,10 @@ pub struct AppState {
     pub coverage_hint: Option<CoverageHint>,
     /// A Sidetone text field currently holds the keyboard.
     pub keyboard_captured: bool,
+    /// Set when the connection shown comes from another client ("xPilot").
+    pub connection_via: Option<&'static str>,
+    /// Aircraft the connected client is rendering nearby.
+    pub nearby_aircraft: Option<u32>,
     pub perf: Perf,
 }
 

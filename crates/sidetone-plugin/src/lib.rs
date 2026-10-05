@@ -2,6 +2,7 @@
 //! panic is logged instead of crashing the sim.
 
 mod app;
+mod bridge;
 mod sim;
 mod ui;
 

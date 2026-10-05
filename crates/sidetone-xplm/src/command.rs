@@ -31,6 +31,15 @@ impl Command {
     pub fn once(&self) {
         unsafe { sys::XPLMCommandOnce(self.0) }
     }
+
+    /// Starts holding the command (like pressing and holding a key). Pair with [`Command::end`].
+    pub fn begin(&self) {
+        unsafe { sys::XPLMCommandBegin(self.0) }
+    }
+
+    pub fn end(&self) {
+        unsafe { sys::XPLMCommandEnd(self.0) }
+    }
 }
 
 type Handler = Box<dyn FnMut(Phase) -> bool>;

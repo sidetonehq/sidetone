@@ -116,6 +116,32 @@ fn status(feed: &DataFeed, stations: &[Station], f: &Friend) -> FriendStatus {
     FriendStatus { key, label, online_as: None, detail: String::new() }
 }
 
+/// Finds the pilot's CID from the public feed: a live connection with `callsign`, else a
+/// prefile with that callsign whose airports match. Only an unambiguous match counts.
+pub fn detect_cid(feed: &DataFeed, callsign: &str, departure: Option<&str>, arrival: Option<&str>) -> Option<u32> {
+    let callsign = callsign.trim();
+    if callsign.is_empty() {
+        return None;
+    }
+    let live: Vec<u32> = feed.pilots.iter().filter(|p| p.callsign.eq_ignore_ascii_case(callsign)).map(|p| p.cid).collect();
+    if let [cid] = live[..] {
+        return Some(cid);
+    }
+    let airports_match = |fp: &sidetone_vatsim::feed::FlightPlan| {
+        departure.is_some_and(|d| fp.departure.eq_ignore_ascii_case(d)) && arrival.is_some_and(|a| fp.arrival.eq_ignore_ascii_case(a))
+    };
+    let prefiled: Vec<u32> = feed
+        .prefiles
+        .iter()
+        .filter(|p| p.callsign.eq_ignore_ascii_case(callsign) && p.flight_plan.as_ref().is_some_and(airports_match))
+        .map(|p| p.cid)
+        .collect();
+    match prefiled[..] {
+        [cid] => Some(cid),
+        _ => None,
+    }
+}
+
 /// Departure/arrival: manual entries win, then an imported SimBrief plan, then your VATSIM
 /// flight plan (live or prefiled).
 pub fn route(settings: &Settings, simbrief: Option<&Plan>, feed: Option<&DataFeed>) -> Route {
@@ -213,6 +239,20 @@ mod tests {
         assert_eq!(statuses[0].online_as.as_deref(), Some("BAW1"));
         let (_, notices) = w.friends(&feed, &[], &friends[..1]);
         assert!(notices.is_empty());
+    }
+
+    #[test]
+    fn detects_cid_unambiguously() {
+        let feed: DataFeed = serde_json::from_str(
+            r#"{"pilots":[{"cid":11,"callsign":"BAW123"},{"cid":12,"callsign":"DUP"},{"cid":13,"callsign":"DUP"}],
+                "prefiles":[{"cid":21,"callsign":"SAS42","flight_plan":{"departure":"EGLL","arrival":"ESSA"}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(detect_cid(&feed, "baw123", None, None), Some(11));
+        assert_eq!(detect_cid(&feed, "DUP", None, None), None, "ambiguous");
+        assert_eq!(detect_cid(&feed, "SAS42", Some("EGLL"), Some("ESSA")), Some(21));
+        assert_eq!(detect_cid(&feed, "SAS42", Some("EGKK"), Some("ESSA")), None, "airports must match");
+        assert_eq!(detect_cid(&feed, "", None, None), None);
     }
 
     #[test]

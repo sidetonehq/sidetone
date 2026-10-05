@@ -15,6 +15,16 @@ pub struct Settings {
     pub friends: Vec<Friend>,
     /// The current flight's clearance & notes card.
     pub flight: crate::clearance::FlightNotes,
+    pub integrations: Integrations,
+}
+
+/// Optional bridges to other software. All off by default.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Integrations {
+    /// Show xPilot's connection in Sidetone and forward push-to-talk to it. Read-only towards
+    /// the network: Sidetone never sends traffic through xPilot.
+    pub xpilot_companion: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

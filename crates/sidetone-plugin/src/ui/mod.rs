@@ -44,6 +44,9 @@ pub struct Model {
     pub atc_rows: Vec<(usize, Option<f64>)>,
     pub atc_rows_key: (usize, String, bool, i64),
     pub was_vr: bool,
+    pub xpilot: crate::bridge::xpilot::XpilotBridge,
+    /// The CID shown in Settings was found automatically.
+    pub cid_detected: bool,
 }
 
 /// Transient widget state (search boxes, input fields).
@@ -90,6 +93,8 @@ impl Model {
             atc_rows: Vec::new(),
             atc_rows_key: (0, String::new(), false, 0),
             was_vr: false,
+            xpilot: Default::default(),
+            cid_detected: false,
         }
     }
 

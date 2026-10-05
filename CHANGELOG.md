@@ -13,3 +13,6 @@ First public preview.
 - SimBrief import; Hoppie CPDLC and pre-departure clearances.
 - VATSIM events, friends online alerts, pilot hours.
 - Keyboard focus hand-back and clipboard support.
+- Automatic CID detection from the live callsign or SimBrief plan.
+- Optional xPilot companion mode: connection status, receive lights, SELCAL, traffic count and
+  shared push-to-talk (read-only towards the network).

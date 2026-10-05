@@ -70,13 +70,15 @@ fn header(ui: &Ui, fonts: Fonts, m: &Model) {
     ui.dummy([width, height]);
     ui.same_line();
     ui.align_text_to_frame_padding();
+    let via = m.state.connection_via.map(|v| format!(" via {v}")).unwrap_or_default();
+    let traffic = m.state.nearby_aircraft.map(|n| format!("   {n} aircraft")).unwrap_or_default();
     ui.text_disabled(format!(
-        "{}   COM1 {}   COM2 {}   XPDR {} {}",
+        "{}{via}   COM1 {}   COM2 {}   XPDR {} {}{traffic}",
         m.state.connection.label(),
         format_com_khz(m.state.com1.active_khz),
         format_com_khz(m.state.com2.active_khz),
         format_squawk(m.state.transponder.code),
-        m.state.transponder.mode.label()
+        m.state.transponder.mode.label(),
     ));
 }
 
@@ -225,7 +227,11 @@ fn settings(ui: &Ui, fonts: Fonts, m: &mut Model) {
         }
         m.actions.push(Action::SaveSettings);
     }
-    ui.text_disabled("Used to find your flight plan in the public feed and show your hours. No password needed.");
+    if m.cid_detected {
+        ui.same_line();
+        ui.text_colored(theme::OK, "Found automatically");
+    }
+    ui.text_disabled("Found automatically from your live callsign or SimBrief plan; you can also type it. No password needed.");
     if ui.checkbox("Notify me when my airports' ATIS or METAR changes", &mut m.settings.vatsim.weather_alerts) {
         m.actions.push(Action::SaveSettings);
     }
@@ -238,6 +244,31 @@ fn settings(ui: &Ui, fonts: Fonts, m: &mut Model) {
     secret_row(ui, m, Secret::SimbriefUsername, "SimBrief username", m.simbrief_user_saved, false);
     secret_row(ui, m, Secret::HoppieLogon, "Hoppie logon code", m.hoppie_ready, true);
     ui.text_disabled("Get a free Hoppie logon code at hoppie.nl/acars.");
+
+    ui.spacing();
+    ui.text_disabled("INTEGRATIONS");
+    if ui.checkbox("xPilot companion mode", &mut m.settings.integrations.xpilot_companion) {
+        m.actions.push(Action::SaveSettings);
+    }
+    if ui.is_item_hovered() {
+        ui.tooltip_text(
+            "Shows xPilot's VATSIM connection in Sidetone and makes Sidetone's push-to-talk key xPilot's too.\n\
+             Read-only towards the network: Sidetone never sends anything through xPilot.",
+        );
+    }
+    if m.settings.integrations.xpilot_companion {
+        ui.same_line();
+        if !m.xpilot.detected() {
+            ui.text_colored(theme::WARN, "xPilot plugin not found");
+        } else if m.state.connection_via.is_some() && matches!(m.state.connection, sidetone_core::state::Connection::Connected { .. }) {
+            ui.text_colored(theme::OK, format!("Connected · {}", m.state.connection.label()));
+        } else {
+            ui.text_disabled("xPilot found · not connected");
+        }
+    } else {
+        ui.same_line();
+        ui.text_disabled("Use alongside xPilot until Sidetone connects natively");
+    }
 
     ui.spacing();
     ui.text_disabled("APPEARANCE");

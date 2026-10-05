@@ -39,6 +39,10 @@ pub fn build(frame: &mut HostFrame, m: &mut Model) {
     };
     theme::mark(&draw, [left + 3.0 * s, rows[0] + 9.0 * s], 16.0 * s, fade(light));
     draw.add_text([left + 20.0 * s, rows[0]], fade(theme::TEXT), &label);
+    if let Some(via) = m.state.connection_via {
+        let x = left + 26.0 * s + ui.calc_text_size(&label)[0];
+        draw.add_text([x, rows[0]], fade(theme::TEXT_DIM), format!("· {via}"));
+    }
     if m.state.network.feed_error.is_some() {
         let x = left + 28.0 * s + ui.calc_text_size(&label)[0];
         draw.add_text([x, rows[0]], fade(theme::WARN), "· VATSIM data unavailable");
@@ -117,6 +121,11 @@ fn radio_cell(
     };
     draw.add_text([x, y], fade(name_color), name);
     let mut x = x + ui.calc_text_size(name)[0] + 6.0 * s;
+    if radio.receiving {
+        // Receive light: lit while audio is coming in on this radio.
+        draw.add_circle([x + 2.0 * s, y + 9.0 * s], 3.0 * s, fade(theme::OK)).filled(true).build();
+        x += 10.0 * s;
+    }
     if !radio.powered {
         draw.add_text([x, y], fade(theme::TEXT_DIM), "OFF");
         return;
