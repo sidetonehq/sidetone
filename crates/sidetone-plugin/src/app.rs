@@ -472,7 +472,7 @@ fn hoppie_action(op: HoppieAction, m: &mut Model, services: &services::Worker) {
                     .network
                     .snapshot
                     .as_ref()
-                    .and_then(|s| s.stations.iter().find(|st| st.callsign.starts_with(dep.as_str()) && st.atis_code.is_some()))
+                    .and_then(|s| stations::departure_atis(&s.stations, &dep))
                     .and_then(|st| st.atis_code.clone())
                     .unwrap_or_default();
                 let station = if station.trim().is_empty() { dep.clone() } else { station };
@@ -571,10 +571,10 @@ fn on_vatsim(m: &mut Model, update: Update, now: f32) {
                 m.settings_dirty |= FlightNotes::fill(&mut m.settings.flight.squawk, &fp.assigned_transponder);
             }
             if let Some(dep) = m.state.route.departure.clone()
-                && let Some(code) =
-                    snapshot.stations.iter().find(|s| s.callsign.starts_with(dep.as_str()) && s.atis_code.is_some()).and_then(|s| s.atis_code.clone())
+                && let Some(code) = stations::departure_atis(&snapshot.stations, &dep).and_then(|s| s.atis_code.clone())
             {
-                m.settings_dirty |= FlightNotes::fill(&mut m.settings.flight.atis, &code);
+                let f = &mut m.settings.flight;
+                m.settings_dirty |= FlightNotes::track(&mut f.atis, &mut f.atis_auto, &code);
             }
         }
         Update::Boundaries(b) => {
@@ -603,7 +603,8 @@ fn on_vatsim(m: &mut Model, update: Update, now: f32) {
             if let Some(dep) = m.state.route.departure.clone()
                 && let Some(qnh) = metars.get(&dep).and_then(|t| clearance::qnh_from_metar(t))
             {
-                m.settings_dirty |= FlightNotes::fill(&mut m.settings.flight.qnh, &qnh);
+                let f = &mut m.settings.flight;
+                m.settings_dirty |= FlightNotes::track(&mut f.qnh, &mut f.qnh_auto, &qnh);
             }
             m.state.network.metars.extend(metars);
         }

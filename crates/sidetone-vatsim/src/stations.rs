@@ -104,6 +104,19 @@ pub fn on_frequency(stations: &[Station], khz: i32, from: Option<LatLon>) -> Opt
     }
 }
 
+/// The ATIS a departing pilot should have: the departure ATIS where an airport splits them
+/// (`EHAM_D_ATIS`), else its main ATIS (`EHAM_ATIS`), else any ATIS there.
+pub fn departure_atis<'a>(stations: &'a [Station], icao: &str) -> Option<&'a Station> {
+    let at_airport = |s: &&Station| s.atis_code.is_some() && s.callsign.split('_').next() == Some(icao);
+    let kind = |s: &Station| s.callsign.split('_').collect::<Vec<_>>().len();
+    stations.iter().filter(at_airport).min_by_key(|s| match s.callsign.split('_').nth(1) {
+        Some("D") if kind(s) == 3 => 0,
+        Some("ATIS") => 1,
+        Some("A") if kind(s) == 3 => 3,
+        _ => 2,
+    })
+}
+
 /// Line-of-sight VHF range in nm between an aircraft at `altitude_ft` and a ground station.
 pub fn radio_horizon_nm(altitude_ft: f64) -> f64 {
     1.23 * (altitude_ft.max(0.0).sqrt() + 100f64.sqrt())
@@ -139,6 +152,23 @@ mod tests {
         assert_eq!(on_frequency(&s, 118_705, Some(heathrow)).unwrap().callsign, "EGLL_TWR");
         assert_eq!(on_frequency(&s, 119_105, None).unwrap().name, "Flesland Tower");
         assert!(on_frequency(&s, 121_500, None).is_none());
+    }
+
+    #[test]
+    fn picks_the_departure_atis() {
+        let mut s = fixture();
+        let atis = |callsign: &str, code: &str| {
+            let mut a = s.iter().find(|x| x.callsign == "ENBR_ATIS").unwrap().clone();
+            a.callsign = callsign.into();
+            a.atis_code = Some(code.into());
+            a
+        };
+        assert_eq!(departure_atis(&s, "ENBR").unwrap().atis_code.as_deref(), Some("C"));
+        let (arr, dep) = (atis("EHAM_A_ATIS", "E"), atis("EHAM_D_ATIS", "R"));
+        s.push(arr);
+        s.push(dep);
+        assert_eq!(departure_atis(&s, "EHAM").unwrap().atis_code.as_deref(), Some("R"));
+        assert!(departure_atis(&s, "EGLL").is_none(), "EGLL_TWR is not an ATIS");
     }
 
     #[test]

@@ -36,8 +36,10 @@ pub fn shutdown() {
 }
 
 impl Log for Logger {
+    /// Debug detail only from Sidetone's own crates; libraries (HTTP, TLS) log warnings and up,
+    /// otherwise every 15-second feed fetch would add pages of transport chatter.
     fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() <= Level::Debug
+        if metadata.target().starts_with("sidetone") { metadata.level() <= Level::Debug } else { metadata.level() <= Level::Warn }
     }
 
     fn log(&self, record: &Record) {

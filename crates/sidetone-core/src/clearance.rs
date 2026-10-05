@@ -17,6 +17,10 @@ pub struct FlightNotes {
     pub atis: String,
     pub stand: String,
     pub notes: String,
+    /// The ATIS letter was filled by Sidetone (kept current) rather than typed (left alone).
+    pub atis_auto: bool,
+    /// Same for QNH (from the departure METAR).
+    pub qnh_auto: bool,
 }
 
 /// What a clearance text told us.
@@ -138,6 +142,18 @@ impl FlightNotes {
         *self != before
     }
 
+    /// Keeps an auto-filled value current with `latest`; a value the pilot typed is left alone.
+    /// Returns true if the value changed.
+    pub fn track(value: &mut String, auto: &mut bool, latest: &str) -> bool {
+        let latest = latest.trim();
+        if latest.is_empty() || !(value.trim().is_empty() || *auto) || value.trim() == latest {
+            return false;
+        }
+        *value = latest.to_string();
+        *auto = true;
+        true
+    }
+
     /// Fills `field` only if the pilot hasn't entered anything.
     pub fn fill(field: &mut String, value: &str) -> bool {
         if field.trim().is_empty() && !value.trim().is_empty() {
@@ -194,6 +210,19 @@ mod tests {
         assert!(FlightNotes::fill(&mut n.sid, "CPT3J"));
         assert!(n.apply_clearance(&Parsed { runway: Some("09R".into()), ..Default::default() }));
         assert_eq!(n.runway, "09R", "a clearance overwrites");
+    }
+
+    #[test]
+    fn tracking_follows_auto_values_only() {
+        let (mut atis, mut auto) = (String::new(), false);
+        assert!(FlightNotes::track(&mut atis, &mut auto, "E"), "fills an empty field");
+        assert!(auto);
+        assert!(FlightNotes::track(&mut atis, &mut auto, "F"), "keeps an auto value current");
+        assert_eq!(atis, "F");
+        assert!(!FlightNotes::track(&mut atis, &mut auto, "F"), "no change, no update");
+        auto = false; // the pilot typed it
+        assert!(!FlightNotes::track(&mut atis, &mut auto, "G"), "typed values are left alone");
+        assert_eq!(atis, "F");
     }
 
     #[test]

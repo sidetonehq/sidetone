@@ -15,6 +15,48 @@ pub fn build(ui: &Ui, m: &mut Model) {
     notes(ui, m);
 }
 
+/// The departure ATIS letter on the network now, and the station broadcasting it.
+fn current_atis(m: &Model) -> Option<(String, String)> {
+    let dep = m.state.route.departure.as_deref()?;
+    let snapshot = m.state.network.snapshot.as_ref()?;
+    let s = sidetone_vatsim::stations::departure_atis(&snapshot.stations, dep)?;
+    Some((s.atis_code.clone()?, s.callsign.clone()))
+}
+
+/// Shows whether the pilot's ATIS letter is current, with a one-click update if not.
+fn atis_check(ui: &Ui, m: &mut Model) {
+    let entered = m.settings.flight.atis.trim().to_ascii_uppercase();
+    let Some(dep) = m.state.route.departure.clone() else { return };
+    if m.state.network.snapshot.is_none() {
+        return;
+    }
+    let spell = |c: &str| phonetic(c).map(String::from).unwrap_or_else(|| c.to_string());
+    match current_atis(m) {
+        None => ui.text_disabled(format!("No ATIS online at {dep}")),
+        Some((code, callsign)) if entered.is_empty() => {
+            ui.text_disabled(format!("{callsign} is broadcasting information {}", spell(&code)));
+            ui.same_line();
+            if ui.small_button(format!("Use {code}")) {
+                m.settings.flight.atis = code;
+                m.settings.flight.atis_auto = true; // keep it current from now on
+                m.actions.push(Action::SaveSettings);
+            }
+        }
+        Some((code, _)) if code.eq_ignore_ascii_case(&entered) => {
+            ui.text_colored(theme::OK, format!("✓ ATIS {} is current", spell(&code)));
+        }
+        Some((code, callsign)) => {
+            ui.text_colored(theme::WARN, format!("ATIS is now {} ({callsign}). You have {}.", spell(&code), spell(&entered)));
+            ui.same_line();
+            if ui.small_button(format!("Use {code}")) {
+                m.settings.flight.atis = code;
+                m.settings.flight.atis_auto = true; // keep it current from now on
+                m.actions.push(Action::SaveSettings);
+            }
+        }
+    }
+}
+
 /// Everything needed for the first call: who to call, where you're going, and the words.
 fn request(ui: &Ui, m: &mut Model) {
     section(ui, "REQUEST CLEARANCE");
@@ -99,7 +141,11 @@ fn request(ui: &Ui, m: &mut Model) {
         sidetone_ui::copy_to_clipboard(&phrase);
         m.system_message("Clearance request copied", sidetone_xplm::elapsed_time());
     }
-    if stand.is_empty() || atis.is_empty() {
+    let outdated = current_atis(m).is_some_and(|(code, _)| !atis.is_empty() && !code.eq_ignore_ascii_case(&atis));
+    if outdated {
+        ui.same_line();
+        ui.text_colored(theme::WARN, "Your ATIS letter is outdated. Check below.");
+    } else if stand.is_empty() || atis.is_empty() {
         ui.same_line();
         ui.text_disabled("Add your stand and ATIS letter below to complete it.");
     }
@@ -111,13 +157,16 @@ fn clearance(ui: &Ui, m: &mut Model) {
     let field_w = 110.0 * unit;
     let mut changed = false;
 
+    // Returns true when the pilot finished editing this field.
     let mut field = |ui: &Ui, label: &str, hint: &str, value: &mut String, flags: InputTextFlags| {
         ui.align_text_to_frame_padding();
         ui.text_disabled(label);
         ui.same_line_with_pos(105.0 * unit);
         ui.set_next_item_width(field_w);
         ui.input_text(format!("##{label}"), value).hint(hint).flags(flags).build();
-        changed |= ui.is_item_deactivated_after_edit();
+        let edited = ui.is_item_deactivated_after_edit();
+        changed |= edited;
+        edited
     };
 
     let upper = InputTextFlags::CHARS_UPPERCASE;
@@ -137,10 +186,14 @@ fn clearance(ui: &Ui, m: &mut Model) {
         ui.table_next_column();
         field(ui, "Dep freq", "e.g. 120.525", &mut f.departure_freq, InputTextFlags::NONE);
         ui.table_next_column();
-        field(ui, "QNH", "e.g. Q1022", &mut f.qnh, upper);
+        if field(ui, "QNH", "e.g. Q1022", &mut f.qnh, upper) {
+            f.qnh_auto = f.qnh.trim().is_empty(); // typed by the pilot: stop tracking
+        }
         ui.table_next_row();
         ui.table_next_column();
-        field(ui, "ATIS", "e.g. C", &mut f.atis, upper);
+        if field(ui, "ATIS", "e.g. C", &mut f.atis, upper) {
+            f.atis_auto = f.atis.trim().is_empty(); // typed by the pilot: stop tracking
+        }
         ui.table_next_column();
         field(ui, "Stand", "e.g. 512", &mut f.stand, upper);
     }
@@ -157,6 +210,8 @@ fn clearance(ui: &Ui, m: &mut Model) {
     } else if !squawk.is_empty() {
         ui.text_colored(theme::DANGER, "Squawk must be four digits 0–7");
     }
+
+    atis_check(ui, m);
 
     if let Some(khz) = sidetone_core::radio::parse_com_khz(m.settings.flight.departure_freq.trim()) {
         ui.same_line();
