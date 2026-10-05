@@ -241,7 +241,7 @@ fn settings(ui: &Ui, fonts: Fonts, m: &mut Model) {
 
     ui.spacing();
     ui.text_disabled("SIMBRIEF & HOPPIE (stored in your macOS Keychain)");
-    secret_row(ui, m, Secret::SimbriefUsername, "SimBrief username", m.simbrief_user_saved, false);
+    secret_row(ui, m, Secret::SimbriefUsername, "SimBrief username or Pilot ID", m.simbrief_user_saved, false);
     secret_row(ui, m, Secret::HoppieLogon, "Hoppie logon code", m.hoppie_ready, true);
     ui.text_disabled("Get a free Hoppie logon code at hoppie.nl/acars.");
 

@@ -75,12 +75,32 @@ fn fixes(v: &Value) -> Vec<(String, f64, f64)> {
         .collect()
 }
 
+/// SimBrief accepts a username or the numeric Pilot ID (Account Settings); pick the right query.
+pub fn lookup_param(input: &str) -> (&'static str, &str) {
+    let input = input.trim();
+    if !input.is_empty() && input.chars().all(|c| c.is_ascii_digit()) { ("userid", input) } else { ("username", input) }
+}
+
+/// Turns SimBrief's terse errors into something a pilot can act on.
+fn explain(status: &str) -> String {
+    let lower = status.to_ascii_lowercase();
+    if lower.contains("unknown userid") || lower.contains("unknown user") {
+        "SimBrief doesn't recognise that username. Check it in Settings, or use your numeric Pilot ID from SimBrief's Account Settings.".into()
+    } else if lower.contains("no flight") || lower.contains("no ofp") || lower.contains("not found") {
+        "No flight plan found on SimBrief. Generate one on simbrief.com first.".into()
+    } else if status.is_empty() {
+        "SimBrief returned no flight plan.".into()
+    } else {
+        format!("SimBrief: {}", status.trim_start_matches("Error:").trim())
+    }
+}
+
 /// Parses a SimBrief JSON response into a plan, or the error SimBrief reported.
 pub fn parse(json: &str) -> Result<Plan, String> {
-    let v: Value = serde_json::from_str(json).map_err(|e| format!("Unexpected SimBrief response: {e}"))?;
+    let v: Value = serde_json::from_str(json).map_err(|_| "SimBrief sent an unexpected response. Try again in a moment.".to_string())?;
     let status = text(&v, &["fetch", "status"]);
     if !status.eq_ignore_ascii_case("success") {
-        return Err(if status.is_empty() { "SimBrief returned no flight plan".into() } else { status });
+        return Err(explain(&status));
     }
     let airline = text(&v, &["general", "icao_airline"]);
     let flight_number = text(&v, &["general", "flight_number"]);
@@ -127,7 +147,14 @@ mod tests {
     #[test]
     fn reports_errors() {
         let err = parse(r#"{"fetch":{"userid":"","status":"Error: Unknown UserID"}}"#).unwrap_err();
-        assert_eq!(err, "Error: Unknown UserID");
+        assert!(err.starts_with("SimBrief doesn't recognise that username"), "{err}");
         assert!(parse("<html>").is_err());
+        assert_eq!(parse(r#"{"fetch":{"status":"Error: Something else"}}"#).unwrap_err(), "SimBrief: Something else");
+    }
+
+    #[test]
+    fn username_or_pilot_id() {
+        assert_eq!(lookup_param("nickyt"), ("username", "nickyt"));
+        assert_eq!(lookup_param(" 123456 "), ("userid", "123456"));
     }
 }

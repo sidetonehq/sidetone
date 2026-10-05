@@ -169,10 +169,16 @@ fn run(rx: Receiver<Message>, on_update: impl Fn(Update)) {
                 }
             }
             Ok(Message::Request(Request::FetchSimBrief { username })) => {
+                // SimBrief reports problems as HTTP 400 with a JSON message; read it instead
+                // of failing on the status. A numeric entry is a Pilot ID, not a username.
+                let (param, value) = simbrief::lookup_param(&username);
                 let result = agent
                     .get(simbrief::FETCH_URL)
-                    .query("username", &username)
+                    .query(param, value)
                     .query("json", "1")
+                    .config()
+                    .http_status_as_error(false)
+                    .build()
                     .call()
                     .map_err(|e| format!("SimBrief: {e}"))
                     .and_then(|mut r| r.body_mut().with_config().limit(32 * 1024 * 1024).read_to_string().map_err(|e| format!("SimBrief: {e}")))
