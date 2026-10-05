@@ -1,0 +1,43 @@
+name: Release
+
+# Push a tag like v0.1.0 to build the universal plugin and publish a GitHub release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain (arm64 + x86_64)
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - name: Test
+        run: cargo test --workspace
+      - name: Bundle universal plugin
+        run: cargo xtask bundle
+      - name: Package
+        run: |
+          lipo -info dist/Sidetone/mac_x64/Sidetone.xpl | grep -q "x86_64 arm64"
+          cd dist && zip -r "Sidetone-${GITHUB_REF_NAME}-macOS.zip" Sidetone
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "dist/Sidetone-${GITHUB_REF_NAME}-macOS.zip" \
+            --title "Sidetone $GITHUB_REF_NAME" --prerelease --notes-file - <<'NOTES'
+          Preview build for X-Plane 12 on macOS (Apple Silicon and Intel).
+
+          **Install:** unzip and copy the `Sidetone` folder into `X-Plane 12/Resources/plugins/`.
+
+          **Not yet notarized:** if macOS blocks the plugin, open System Settings → Privacy & Security and choose "Allow Anyway", or run
+          `xattr -dr com.apple.quarantine "X-Plane 12/Resources/plugins/Sidetone"`.
+
+          Sidetone uses VATSIM's public data only and does not connect to the network as a pilot client yet. See the README and CHANGELOG for details.
+          NOTES

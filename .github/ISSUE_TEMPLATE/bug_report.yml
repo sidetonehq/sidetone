@@ -1,0 +1,34 @@
+name: Bug report
+description: Something in Sidetone isn't working as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead. Screenshots help a lot.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Sidetone version
+      description: Shown at the bottom of Settings (e.g. v0.1.0).
+    validations:
+      required: true
+  - type: input
+    id: xplane
+    attributes:
+      label: X-Plane version and aircraft
+      placeholder: X-Plane 12.4.3, ToLiss A339
+  - type: input
+    id: mac
+    attributes:
+      label: Mac and macOS version
+      placeholder: MacBook Pro M4 Pro, macOS 27.0
+  - type: textarea
+    id: log
+    attributes:
+      label: Sidetone.log
+      description: Attach or paste `X-Plane 12/Output/Sidetone/Sidetone.log`. It never contains passwords or your Hoppie code.
+      render: text

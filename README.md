@@ -1,5 +1,8 @@
 # Sidetone
 
+[![CI](https://github.com/sidetonehq/sidetone/actions/workflows/ci.yml/badge.svg)](https://github.com/sidetonehq/sidetone/actions/workflows/ci.yml)
+[![Licence: Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
+
 A native VATSIM pilot client for X-Plane 12 on macOS: a plugin that lives inside the sim, with a
 small panel in the top-right corner and a full window one click away.
 
@@ -33,8 +36,10 @@ small panel in the top-right corner and a full window one click away.
 
 ## Install
 
-Copy the `Sidetone` folder into `X-Plane 12/Resources/plugins/`. Builds are not yet notarized,
-so macOS may ask you to allow the plugin the first time.
+Download the latest zip from [Releases](https://github.com/sidetonehq/sidetone/releases), unzip
+it, and copy the `Sidetone` folder into `X-Plane 12/Resources/plugins/`. Builds are not yet
+notarized, so macOS may ask you to allow the plugin the first time (System Settings → Privacy &
+Security → Allow Anyway).
 
 ## Build
 
@@ -46,6 +51,8 @@ cargo test --workspace          # unit tests
 cargo xtask bundle              # dist/Sidetone/mac_x64/Sidetone.xpl
 cargo xtask install             # bundle + copy into ~/X-Plane 12 (or --xplane <path>)
 ```
+
+Releases are built by CI: pushing a tag like `v0.1.0` publishes a universal zip.
 
 Logs: `X-Plane 12/Output/Sidetone/Sidetone.log`. Settings: `Output/preferences/Sidetone.toml`.
 Secrets (Hoppie logon code, SimBrief Pilot ID) live in the macOS Keychain.
