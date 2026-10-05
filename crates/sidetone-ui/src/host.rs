@@ -156,7 +156,7 @@ impl ImguiWindow {
         let window = Window::new(WindowOptions { rect, visible, decoration, layer }, host);
         if let WindowKind::Floating { title } = &kind {
             window.handle().set_title(title);
-            window.handle().set_resizing_limits(400, 260, 4000, 4000);
+            window.handle().set_resizing_limits(600, 360, 4000, 4000);
         }
         ImguiWindow { window, shared }
     }

@@ -31,6 +31,8 @@ pub struct VatSpy {
     pub firs: Vec<Fir>,
     /// Two-letter ICAO prefix → the country's word for area control ("Control", "Radar", "Center").
     pub country_suffix: HashMap<String, String>,
+    /// ICAO prefix (one or two letters) → country name.
+    pub country_names: HashMap<String, String>,
     /// UIR id → name (e.g. "AFRE" → "East Africa Control").
     pub uirs: HashMap<String, String>,
 }
@@ -57,6 +59,7 @@ impl VatSpy {
             let f: Vec<&str> = line.split('|').collect();
             match section {
                 "countries" if f.len() >= 3 => {
+                    out.country_names.entry(f[1].to_string()).or_insert_with(|| f[0].to_string());
                     if !f[2].is_empty() {
                         out.country_suffix.insert(f[1].to_string(), f[2].to_string());
                     }
@@ -100,6 +103,13 @@ impl VatSpy {
     /// A readable airport name for display ("Amsterdam Schiphol"), if known.
     pub fn airport_name(&self, icao: &str) -> Option<String> {
         self.airport(icao).map(|a| a.name.replace('/', " ").split_whitespace().collect::<Vec<_>>().join(" "))
+    }
+
+    /// The country an airport is in, from its ICAO prefix ("EK" → "Denmark", "K" → "United States").
+    pub fn country(&self, icao: &str) -> Option<&str> {
+        let two: String = icao.chars().take(2).collect();
+        let one: String = icao.chars().take(1).collect();
+        self.country_names.get(&two).or_else(|| self.country_names.get(&one)).map(String::as_str)
     }
 
     /// The FIR for an area-control callsign prefix, e.g. "LON_S" then "LON", or by ICAO ("EGTT").
@@ -176,6 +186,8 @@ mod tests {
         assert_eq!(v.airport("JFK").unwrap().icao, "KJFK");
         assert_eq!(v.airport_name("ENBR").as_deref(), Some("Bergen Flesland"));
         assert_eq!(v.airport_name("ZZZZ"), None);
+        assert_eq!(v.country("ENBR"), Some("Norway"));
+        assert_eq!(v.country("KJFK"), Some("United States"));
         assert_eq!(v.country_suffix["EG"], "Control");
         assert_eq!(v.fir_for_prefix("LON_S").unwrap().boundary, "EGTT-S");
         assert_eq!(v.fir_for_prefix("LON_X").unwrap().name, "London");

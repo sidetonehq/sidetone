@@ -6,24 +6,27 @@ use sidetone_core::radio::{format_com_khz, format_squawk};
 use sidetone_core::settings::Friend;
 use sidetone_core::watch::friend_key;
 use sidetone_services::keychain::Secret;
-use sidetone_ui::imgui::{InputTextFlags, Ui};
+use sidetone_ui::imgui::{InputTextFlags, TabBarFittingPolicy, TabBarOptions, Ui};
 use sidetone_ui::theme;
 use sidetone_ui::{Fonts, HostFrame};
 
 pub fn build(frame: &mut HostFrame, m: &mut Model) {
     let ui = frame.ui;
-    header(ui, frame.fonts, m);
-    ui.same_line();
     let label = if frame.popped_out { "Dock" } else { "Pop out" };
     let style = ui.clone_style();
     let w = ui.calc_text_size(label)[0] + style.frame_padding()[0] * 2.0;
-    ui.set_cursor_pos([ui.window_size()[0] - w - style.window_padding()[0], ui.cursor_pos()[1]]);
+    let button_x = ui.window_size()[0] - w - style.window_padding()[0];
+    header(ui, frame.fonts, m, button_x - style.item_spacing()[0] * 2.0);
+    ui.same_line();
+    ui.set_cursor_pos([button_x, ui.cursor_pos()[1]]);
     if ui.small_button(label) {
         frame.set_popped_out(!frame.popped_out);
     }
     ui.separator();
 
-    if let Some(_bar) = ui.tab_bar("tabs") {
+    // Shrink tab labels rather than hiding tabs behind scroll arrows in narrow windows.
+    let tab_options = TabBarOptions::new().fitting_policy(TabBarFittingPolicy::Shrink);
+    if let Some(_bar) = ui.tab_bar_with_flags("tabs", tab_options) {
         if let Some(_t) = ui.tab_item("ATC") {
             super::atc::build(ui, m);
         }
@@ -60,7 +63,7 @@ pub fn build(frame: &mut HostFrame, m: &mut Model) {
     }
 }
 
-fn header(ui: &Ui, fonts: Fonts, m: &Model) {
+fn header(ui: &Ui, fonts: Fonts, m: &Model, right_limit: f32) {
     let pos = ui.cursor_screen_pos();
     let height = ui.current_font_size() * 1.25;
     let width = {
@@ -73,14 +76,17 @@ fn header(ui: &Ui, fonts: Fonts, m: &Model) {
     let connected = matches!(m.state.connection, sidetone_core::state::Connection::Connected { .. });
     let via = m.state.connection_via.filter(|_| connected).map(|v| format!(" via {v}")).unwrap_or_default();
     let traffic = m.state.nearby_aircraft.filter(|n| connected && *n > 0).map(|n| format!("   {n} aircraft")).unwrap_or_default();
-    ui.text_disabled(format!(
+    let status = format!(
         "{}{via}   COM1 {}   COM2 {}   XPDR {} {}{traffic}",
         m.state.connection.label(),
         format_com_khz(m.state.com1.active_khz),
         format_com_khz(m.state.com2.active_khz),
         format_squawk(m.state.transponder.code),
         m.state.transponder.mode.label(),
-    ));
+    );
+    // Never run under the Pop out button in narrow windows.
+    let room = right_limit - ui.cursor_pos()[0];
+    ui.text_disabled(super::panel::elide(ui, &status, room));
 }
 
 fn chat(ui: &Ui, m: &mut Model) {

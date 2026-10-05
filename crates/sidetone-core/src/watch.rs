@@ -176,6 +176,7 @@ mod tests {
         Station {
             callsign: "EGLL_ATIS".into(),
             name: "Heathrow Information".into(),
+            name_source: sidetone_vatsim::naming::NameSource::VatSpy,
             facility: Facility::Atis,
             frequency_khz: 128_075,
             frequencies_hz: vec![],

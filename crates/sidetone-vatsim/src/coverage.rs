@@ -197,6 +197,7 @@ mod tests {
         Station {
             callsign: callsign.into(),
             name: name.into(),
+            name_source: crate::naming::NameSource::VatSpy,
             facility: Facility::from_callsign(callsign),
             frequency_khz: khz,
             frequencies_hz: vec![],

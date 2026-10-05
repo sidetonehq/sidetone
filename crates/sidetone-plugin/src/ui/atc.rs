@@ -170,7 +170,15 @@ fn along_route(ui: &Ui, m: &mut Model) {
                 m.actions.push(Action::Tune { com: Com::One, khz: *khz });
             }
             if ui.is_item_hovered() {
-                ui.tooltip_text(format!("{callsign}\nClick to tune COM1"));
+                let source = m
+                    .state
+                    .network
+                    .snapshot
+                    .as_ref()
+                    .and_then(|snap| snap.stations.iter().find(|s| s.callsign == *callsign))
+                    .map(|s| s.name_source.describe())
+                    .unwrap_or_default();
+                ui.tooltip_text(format!("{callsign}\n{source}\nClick to tune COM1"));
             }
         }
         if leg.online.len() > shown {
@@ -277,7 +285,7 @@ fn stations(ui: &Ui, m: &mut Model) {
         ui.same_line();
         ui.text(&station.name);
         if ui.is_item_hovered() {
-            let mut tip = format!("{} · {}", station.controller, station.callsign);
+            let mut tip = format!("{} · {}\n{}\n", station.controller, station.callsign, station.name_source.describe());
             for line in &station.text {
                 tip.push('\n');
                 tip.push_str(line);

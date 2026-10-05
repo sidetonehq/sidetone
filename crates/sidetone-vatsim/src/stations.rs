@@ -3,7 +3,7 @@
 use crate::feed::{Controller, DataFeed, TransceiverEntry};
 use crate::freq::{channel_to_hz, is_placeholder, parse_mhz, same_frequency};
 use crate::geo::{LatLon, distance_nm};
-use crate::naming::{Facility, station_name};
+use crate::naming::{Facility, NameSource, station_name_with_source};
 use crate::vatspy::VatSpy;
 use std::collections::HashMap;
 
@@ -12,6 +12,8 @@ pub struct Station {
     pub callsign: String,
     /// Spoken name, e.g. "Heathrow Tower".
     pub name: String,
+    /// Where `name` came from (shown on hover).
+    pub name_source: NameSource,
     pub facility: Facility,
     /// Primary frequency as the channel name in kHz (what you dial).
     pub frequency_khz: i32,
@@ -60,8 +62,10 @@ fn station(c: &Controller, transceivers: &HashMap<&str, &TransceiverEntry>, vats
             positions.push(airport.position);
         }
     }
+    let (name, name_source) = station_name_with_source(&c.callsign, c.text_atis.as_deref(), vatspy);
     Some(Station {
-        name: station_name(&c.callsign, c.text_atis.as_deref(), vatspy),
+        name,
+        name_source,
         callsign: c.callsign.clone(),
         facility,
         frequency_khz: khz,

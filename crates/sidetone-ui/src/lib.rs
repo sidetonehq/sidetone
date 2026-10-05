@@ -12,3 +12,10 @@ pub mod theme;
 pub use dear_imgui_rs as imgui;
 pub use host::{HostFrame, ImguiWindow, WindowKind};
 pub use theme::Fonts;
+
+/// Copies text to the macOS clipboard (for "Copy" buttons).
+pub fn copy_to_clipboard(text: &str) {
+    if let Err(e) = arboard::Clipboard::new().and_then(|mut c| c.set_text(text.to_string())) {
+        log::warn!("Clipboard write failed: {e}");
+    }
+}

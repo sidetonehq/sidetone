@@ -13,8 +13,11 @@ pub struct Plan {
     pub aircraft_icao: String,
     pub registration: String,
     pub origin: String,
+    /// English airport name from SimBrief, title-cased ("Amsterdam Schiphol").
+    pub origin_name: String,
     pub origin_runway: String,
     pub destination: String,
+    pub destination_name: String,
     pub destination_runway: String,
     pub alternate: String,
     /// Initial cruise altitude in feet.
@@ -95,6 +98,20 @@ fn explain(status: &str) -> String {
     }
 }
 
+/// "COPENHAGEN KASTRUP" → "Copenhagen Kastrup" (mixed-case input is left alone).
+fn title_case(s: &str) -> String {
+    if s.chars().any(|c| c.is_lowercase()) {
+        return s.to_string();
+    }
+    s.split_whitespace()
+        .map(|w| {
+            let mut c = w.chars();
+            c.next().map(|f| f.to_uppercase().chain(c.flat_map(|x| x.to_lowercase())).collect::<String>()).unwrap_or_default()
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Parses a SimBrief JSON response into a plan, or the error SimBrief reported.
 pub fn parse(json: &str) -> Result<Plan, String> {
     let v: Value = serde_json::from_str(json).map_err(|_| "SimBrief sent an unexpected response. Try again in a moment.".to_string())?;
@@ -115,8 +132,10 @@ pub fn parse(json: &str) -> Result<Plan, String> {
         aircraft_icao: text(&v, &["aircraft", "icaocode"]),
         registration: text(&v, &["aircraft", "reg"]),
         origin: text(&v, &["origin", "icao_code"]),
+        origin_name: title_case(&text(&v, &["origin", "name"])),
         origin_runway: text(&v, &["origin", "plan_rwy"]),
         destination: text(&v, &["destination", "icao_code"]),
+        destination_name: title_case(&text(&v, &["destination", "name"])),
         destination_runway: text(&v, &["destination", "plan_rwy"]),
         alternate: text(&v, &["alternate", "icao_code"]),
         cruise_altitude_ft: text(&v, &["general", "initial_altitude"]).parse().ok(),
@@ -142,6 +161,8 @@ mod tests {
         assert_eq!(plan.aircraft_icao, "A20N");
         assert_eq!(plan.fixes.len(), 2);
         assert_eq!(plan.fixes[1].0, "KENET");
+        assert_eq!(plan.destination_name, "Bergen Flesland");
+        assert_eq!(title_case("COPENHAGEN KASTRUP"), "Copenhagen Kastrup");
     }
 
     #[test]

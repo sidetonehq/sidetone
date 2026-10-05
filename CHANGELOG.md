@@ -13,6 +13,10 @@ First public preview.
 - SimBrief import; Hoppie CPDLC and pre-departure clearances.
 - VATSIM events, friends online alerts, pilot hours.
 - Keyboard focus hand-back and clipboard support.
+- Clearance request card: destination with name and country, your stand, who to call, and a
+  ready-to-say request ("…, information Echo, request clearance to Copenhagen").
+- Hover any station to see where its spoken name came from.
+- Transmit light: the panel mark turns red while transmitting.
 - Automatic CID detection from the live callsign or SimBrief plan.
 - Optional xPilot companion mode: connection status, receive lights, SELCAL, traffic count and
   shared push-to-talk (read-only towards the network).

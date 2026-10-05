@@ -203,24 +203,54 @@ fn area_word(vatspy: &VatSpy, fir_icao: &str) -> String {
         .unwrap_or_else(|| if matches!(one.as_str(), "K" | "P" | "C") { "Center".into() } else { "Control".into() })
 }
 
-/// The spoken name for a station.
-pub fn station_name(callsign: &str, text: Option<&[String]>, vatspy: Option<&VatSpy>) -> String {
-    let name = base_station_name(callsign, text, vatspy);
-    // Split ATIS: EDDF_A_ATIS / EDDF_D_ATIS are the arrival and departure broadcasts.
-    let parts: Vec<&str> = callsign.split('_').collect();
-    match (Facility::from_callsign(callsign), parts.as_slice()) {
-        (Facility::Atis, [_, "A", _]) if !name.contains("Arrival") => name.replacen(" Information", " Arrival Information", 1),
-        (Facility::Atis, [_, "D", _]) if !name.contains("Departure") => name.replacen(" Information", " Departure Information", 1),
-        _ => name,
+/// Where a station's spoken name came from, so the UI can show its provenance.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NameSource {
+    /// The controller's own info text (the line it came from).
+    InfoText(String),
+    /// VATSpy airport/FIR data plus the facility type.
+    VatSpy,
+    /// Nothing better was known.
+    Callsign,
+}
+
+impl NameSource {
+    /// One line for a tooltip.
+    pub fn describe(&self) -> String {
+        match self {
+            NameSource::InfoText(line) => format!("Name from the controller's info: \"{line}\""),
+            NameSource::VatSpy => "Name from VATSpy airport/sector data".into(),
+            NameSource::Callsign => "No name known; showing the callsign".into(),
+        }
     }
 }
 
-fn base_station_name(callsign: &str, text: Option<&[String]>, vatspy: Option<&VatSpy>) -> String {
+/// The spoken name for a station.
+pub fn station_name(callsign: &str, text: Option<&[String]>, vatspy: Option<&VatSpy>) -> String {
+    station_name_with_source(callsign, text, vatspy).0
+}
+
+/// The spoken name for a station, and where it came from.
+pub fn station_name_with_source(callsign: &str, text: Option<&[String]>, vatspy: Option<&VatSpy>) -> (String, NameSource) {
+    let (name, source) = base_station_name(callsign, text, vatspy);
+    // Split ATIS: EDDF_A_ATIS / EDDF_D_ATIS are the arrival and departure broadcasts.
+    let parts: Vec<&str> = callsign.split('_').collect();
+    let name = match (Facility::from_callsign(callsign), parts.as_slice()) {
+        (Facility::Atis, [_, "A", _]) if !name.contains("Arrival") => name.replacen(" Information", " Arrival Information", 1),
+        (Facility::Atis, [_, "D", _]) if !name.contains("Departure") => name.replacen(" Information", " Departure Information", 1),
+        _ => name,
+    };
+    (name, source)
+}
+
+fn base_station_name(callsign: &str, text: Option<&[String]>, vatspy: Option<&VatSpy>) -> (String, NameSource) {
     let facility = Facility::from_callsign(callsign);
-    if let Some(name) = text.and_then(|t| t.first()).and_then(|line| name_from_text(line, facility)) {
-        return name;
+    if let Some(line) = text.and_then(|t| t.first())
+        && let Some(name) = name_from_text(line, facility)
+    {
+        return (name, NameSource::InfoText(line.trim().to_string()));
     }
-    let Some(vatspy) = vatspy else { return callsign.to_string() };
+    let Some(vatspy) = vatspy else { return (callsign.to_string(), NameSource::Callsign) };
     let prefix = callsign.rsplit_once('_').map(|(p, _)| p).unwrap_or(callsign);
 
     match facility {
@@ -229,13 +259,13 @@ fn base_station_name(callsign: &str, text: Option<&[String]>, vatspy: Option<&Va
                 // "Kobenhavn (East)" → "Kobenhavn"
                 let fir_name = fir.name.split('(').next().unwrap_or(&fir.name).trim();
                 if ends_with_radio_word(fir_name) {
-                    return fir_name.to_string();
+                    return (fir_name.to_string(), NameSource::VatSpy);
                 }
                 let word = if facility == Facility::Fss { "Radio".to_string() } else { area_word(vatspy, &fir.icao) };
-                return format!("{fir_name} {word}");
+                return (format!("{fir_name} {word}"), NameSource::VatSpy);
             }
             if let Some(name) = vatspy.uirs.get(prefix) {
-                return name.clone();
+                return (name.clone(), NameSource::VatSpy);
             }
         }
         Facility::Other => {}
@@ -244,11 +274,11 @@ fn base_station_name(callsign: &str, text: Option<&[String]>, vatspy: Option<&Va
             if let Some(airport) = vatspy.airport(airport_id) {
                 let fir_city = vatspy.firs.iter().find(|f| f.icao == airport.fir).map(|f| f.name.as_str());
                 let word = facility.word().unwrap_or_default();
-                return format!("{} {word}", short_airport_name(&airport.name, fir_city));
+                return (format!("{} {word}", short_airport_name(&airport.name, fir_city)), NameSource::VatSpy);
             }
         }
     }
-    callsign.to_string()
+    (callsign.to_string(), NameSource::Callsign)
 }
 
 #[cfg(test)]
@@ -301,6 +331,17 @@ mod tests {
         assert_eq!(station_name("EGLL_TWR", None, None), "EGLL_TWR");
         assert_eq!(short_airport_name("Moscow (Sheremetyevo)", None), "Sheremetyevo");
         assert_eq!(short_airport_name("Lexington Blue Grass", None), "Lexington");
+    }
+
+    #[test]
+    fn records_where_names_came_from() {
+        let v = spy();
+        let text = vec!["Callsign BERLIN APRON - PDC/DCL Logon EDDB".to_string()];
+        let (name, source) = station_name_with_source("EDDB_A_GND", Some(&text), Some(&v));
+        assert_eq!(name, "Berlin Apron");
+        assert_eq!(source, NameSource::InfoText("Callsign BERLIN APRON - PDC/DCL Logon EDDB".into()));
+        assert_eq!(station_name_with_source("EGLL_TWR", None, Some(&v)).1, NameSource::VatSpy);
+        assert_eq!(station_name_with_source("ZZZZ_TWR", None, Some(&v)).1, NameSource::Callsign);
     }
 
     #[test]

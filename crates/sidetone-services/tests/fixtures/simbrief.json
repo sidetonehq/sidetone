@@ -2,7 +2,7 @@
   "fetch": {"userid": "123456", "static_id": "", "status": "Success", "time": "0.01"},
   "general": {"icao_airline": "BAW", "flight_number": "123", "initial_altitude": "35000", "costindex": "30", "route": "CPT3J CPT UL9 KENET"},
   "origin": {"icao_code": "EGLL", "plan_rwy": "27R"},
-  "destination": {"icao_code": "ENBR", "plan_rwy": "17"},
+  "destination": {"icao_code": "ENBR", "name": "BERGEN FLESLAND", "plan_rwy": "17"},
   "alternate": {"icao_code": "ENZV"},
   "aircraft": {"icaocode": "A20N", "reg": "G-TTNA"},
   "times": {"est_time_enroute": 6720},

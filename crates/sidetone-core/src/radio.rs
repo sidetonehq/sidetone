@@ -78,8 +78,26 @@ pub fn is_valid_squawk(text: &str) -> bool {
     text.len() == 4 && text.chars().all(|c| ('0'..='7').contains(&c))
 }
 
+/// ICAO spelling alphabet for a letter ("E" → "Echo"), e.g. to say an ATIS code.
+pub fn phonetic(letter: &str) -> Option<&'static str> {
+    const WORDS: [&str; 26] = [
+        "Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf", "Hotel", "India", "Juliett", "Kilo", "Lima", "Mike", "November", "Oscar", "Papa",
+        "Quebec", "Romeo", "Sierra", "Tango", "Uniform", "Victor", "Whiskey", "X-ray", "Yankee", "Zulu",
+    ];
+    let c = letter.trim().chars().next()?.to_ascii_uppercase();
+    c.is_ascii_uppercase().then(|| WORDS[(c as u8 - b'A') as usize])
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn spells_letters() {
+        assert_eq!(super::phonetic("e"), Some("Echo"));
+        assert_eq!(super::phonetic("X"), Some("X-ray"));
+        assert_eq!(super::phonetic(""), None);
+        assert_eq!(super::phonetic("3"), None);
+    }
+
     use super::*;
 
     #[test]
