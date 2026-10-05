@@ -21,6 +21,7 @@ pub struct Sim {
     elevation_m: Option<DataRef>,
     on_ground: Option<DataRef>,
     vr: Option<DataRef>,
+    audio_com: Option<DataRef>,
 }
 
 fn find(name: &str) -> Option<DataRef> {
@@ -48,6 +49,7 @@ impl Sim {
             elevation_m: find("sim/flightmodel/position/elevation"),
             on_ground: find("sim/flightmodel/failures/onground_any"),
             vr: find("sim/graphics/VR/enabled"),
+            audio_com: find("sim/cockpit2/radios/actuators/audio_com_selection"),
         }
     }
 
@@ -68,6 +70,8 @@ impl Sim {
         }
         state.altitude_ft = self.elevation_m.map(|r| r.get_f64() * 3.28084).unwrap_or(0.0);
         state.on_ground = self.on_ground.is_none_or(|r| r.get_i32() != 0);
+        // 6 = COM1, 7 = COM2 (X-Plane's audio panel transmit selector).
+        state.tx_com = if self.audio_com.is_some_and(|r| r.get_i32() == 7) { 2 } else { 1 };
     }
 
     pub fn vr_enabled(&self) -> bool {

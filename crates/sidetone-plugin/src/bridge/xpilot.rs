@@ -20,6 +20,8 @@ struct Refs {
     selcal: Option<DataRef>,
     aircraft: Option<DataRef>,
     ptt: Option<Command>,
+    /// Set by xPilot while its push-to-talk is held through X-Plane.
+    transmitting: Option<DataRef>,
 }
 
 impl Refs {
@@ -32,6 +34,7 @@ impl Refs {
             selcal: DataRef::find("xpilot/selcal_received"),
             aircraft: DataRef::find("xpilot/num_aircraft"),
             ptt: Command::find("xpilot/ptt"),
+            transmitting: DataRef::find("xpilot/ptt"),
         })
     }
 }
@@ -87,6 +90,7 @@ impl XpilotBridge {
         state.com1.receiving = flag(&refs.com1_rx);
         state.com2.receiving = flag(&refs.com2_rx);
         state.nearby_aircraft = refs.aircraft.map(|r| r.get_i32().max(0) as u32);
+        state.transmitting = state.ptt_pressed || (connected && flag(&refs.transmitting));
 
         let selcal = flag(&refs.selcal);
         if selcal && !self.selcal_was {

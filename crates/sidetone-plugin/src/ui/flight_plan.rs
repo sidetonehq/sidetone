@@ -32,8 +32,20 @@ pub fn build(ui: &Ui, m: &mut Model) {
     ui.same_line();
     ui.text(format!("{} {}", plan.aircraft_icao, plan.registration));
     ui.separator();
-    row(ui, "Route", &format!("{} {} → {} {}", plan.origin, plan.origin_runway, plan.destination, plan.destination_runway));
-    row(ui, "Alternate", if plan.alternate.is_empty() { "—" } else { &plan.alternate });
+    let name = |icao: &str| m.state.network.vatspy.as_ref().and_then(|v| v.airport_name(icao));
+    let airport = |icao: &str, runway: &str| {
+        let mut text = icao.to_string();
+        if let Some(n) = name(icao) {
+            text.push_str(&format!("  {n}"));
+        }
+        if !runway.is_empty() {
+            text.push_str(&format!("  · RWY {runway}"));
+        }
+        text
+    };
+    row(ui, "From", &airport(&plan.origin, &plan.origin_runway));
+    row(ui, "To", &airport(&plan.destination, &plan.destination_runway));
+    row(ui, "Alternate", &if plan.alternate.is_empty() { "—".to_string() } else { airport(&plan.alternate, "") });
     row(ui, "Cruise", &plan.cruise_label());
     row(ui, "Time en route", &plan.ete_label());
     row(ui, "Cost index", &plan.cost_index);

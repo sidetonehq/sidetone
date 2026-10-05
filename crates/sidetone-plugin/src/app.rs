@@ -273,6 +273,7 @@ impl App {
 fn bridge_tick(m: &mut Model, now: f32) {
     use crate::bridge::xpilot::Notice;
     let Model { xpilot, state, settings, .. } = m;
+    state.transmitting = state.ptt_pressed;
     if !settings.integrations.xpilot_companion {
         xpilot.release(state);
         return;

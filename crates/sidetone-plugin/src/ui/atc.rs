@@ -72,6 +72,12 @@ fn your_airports(ui: &Ui, m: &mut Model) {
     for icao in &airports {
         let _id = ui.push_id(icao.as_str());
         ui.text_colored(theme::ACCENT, icao);
+        if let Some(name) = m.state.network.vatspy.as_ref().and_then(|v| v.airport_name(icao)) {
+            ui.same_line();
+            ui.text(name);
+        }
+        ui.same_line();
+        ui.text_disabled("·");
         ui.same_line();
         let atis: Vec<_> = stations.iter().filter(|s| s.facility == Facility::Atis && s.callsign.split('_').next() == Some(icao.as_str())).collect();
         if atis.is_empty() {

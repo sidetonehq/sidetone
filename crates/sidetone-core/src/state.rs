@@ -127,7 +127,12 @@ pub struct AppState {
     pub transponder: Transponder,
     pub messages: Vec<Message>,
     pub unread: usize,
+    /// Sidetone's own push-to-talk (X-Plane's ATC key or sidetone/ptt) is held.
     pub ptt_pressed: bool,
+    /// Transmitting right now, from any source (Sidetone's PTT or a connected client's).
+    pub transmitting: bool,
+    /// Which COM the audio panel transmits on (1 or 2).
+    pub tx_com: u8,
     pub network: Network,
     pub position: Option<LatLon>,
     pub altitude_ft: f64,

@@ -37,6 +37,8 @@ pub fn build(frame: &mut HostFrame, m: &mut Model) {
         Connection::Connecting => (theme::WARN, m.state.connection.label().to_string()),
         Connection::Disconnected => (theme::TEXT_DIM, "Offline".to_string()),
     };
+    // The mark turns red while transmitting, whichever client is keying the mic.
+    let light = if m.state.transmitting { theme::DANGER } else { light };
     theme::mark(&draw, [left + 3.0 * s, rows[0] + 9.0 * s], 16.0 * s, fade(light));
     draw.add_text([left + 20.0 * s, rows[0]], fade(theme::TEXT), &label);
     if let (Some(via), Connection::Connected { .. }) = (m.state.connection_via, &m.state.connection) {
@@ -76,8 +78,9 @@ pub fn build(frame: &mut HostFrame, m: &mut Model) {
 
     // Row 2: COM1 | COM2, each with the station you'd hear.
     let half = (right - left) / 2.0;
-    radio_cell(ui, &draw, [left, rows[1]], half - 8.0 * s, s, "COM1", &m.state.com1, m.state.ptt_pressed, &fade);
-    radio_cell(ui, &draw, [left + half + 8.0 * s, rows[1]], half - 8.0 * s, s, "COM2", &m.state.com2, false, &fade);
+    let tx = m.state.transmitting;
+    radio_cell(ui, &draw, [left, rows[1]], half - 8.0 * s, s, "COM1", &m.state.com1, tx && m.state.tx_com == 1, &fade);
+    radio_cell(ui, &draw, [left + half + 8.0 * s, rows[1]], half - 8.0 * s, s, "COM2", &m.state.com2, tx && m.state.tx_com == 2, &fade);
 
     // Row 3, by priority: typing indicator, a fresh message, the frequency hint, idle.
     let ticker = if m.state.keyboard_captured {
@@ -86,6 +89,9 @@ pub fn build(frame: &mut HostFrame, m: &mut Model) {
         (format!("{}: {}", msg.from, msg.text), theme::TEXT)
     } else {
         match &m.state.coverage_hint {
+            Some(CoverageHint::Tune { name, khz }) if m.state.on_ground => {
+                (format!("Your first call: {name} {} · click to open ATC", format_com_khz(*khz)), theme::ACCENT)
+            }
             Some(CoverageHint::Tune { name, khz }) => (format!("{name} {} covers you · click to open ATC", format_com_khz(*khz)), theme::ACCENT),
             Some(CoverageHint::Unicom) => ("No ATC overhead · monitor UNICOM 122.800".to_string(), theme::WARN),
             None => ("No new messages".to_string(), theme::TEXT_DIM),
@@ -135,7 +141,8 @@ fn radio_cell(
     x += ui.calc_text_size("000.000")[0] + 6.0 * s;
     let room = pos[0] + width - x;
     let (label, color) = match &radio.station {
-        Some(st) if st.out_of_range => (format!("{} (far)", st.name), theme::TEXT_DIM),
+        // Too far to hear on VHF: saying "Hamburg Tower" at Schiphol would mislead.
+        Some(st) if st.out_of_range => ("No ATC in range".to_string(), theme::TEXT_DIM),
         Some(st) => (st.name.clone(), theme::TEXT),
         None => ("No ATC".to_string(), theme::TEXT_DIM),
     };

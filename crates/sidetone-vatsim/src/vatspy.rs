@@ -97,6 +97,11 @@ impl VatSpy {
         self.airports.get(id).or_else(|| self.by_lid.get(id).and_then(|icao| self.airports.get(icao)))
     }
 
+    /// A readable airport name for display ("Amsterdam Schiphol"), if known.
+    pub fn airport_name(&self, icao: &str) -> Option<String> {
+        self.airport(icao).map(|a| a.name.replace('/', " ").split_whitespace().collect::<Vec<_>>().join(" "))
+    }
+
     /// The FIR for an area-control callsign prefix, e.g. "LON_S" then "LON", or by ICAO ("EGTT").
     pub fn fir_for_prefix(&self, prefix: &str) -> Option<&Fir> {
         let mut candidate = prefix;
@@ -169,6 +174,8 @@ mod tests {
         let v = VatSpy::parse(SAMPLE);
         assert_eq!(v.airports["EGLL"].name, "London Heathrow");
         assert_eq!(v.airport("JFK").unwrap().icao, "KJFK");
+        assert_eq!(v.airport_name("ENBR").as_deref(), Some("Bergen Flesland"));
+        assert_eq!(v.airport_name("ZZZZ"), None);
         assert_eq!(v.country_suffix["EG"], "Control");
         assert_eq!(v.fir_for_prefix("LON_S").unwrap().boundary, "EGTT-S");
         assert_eq!(v.fir_for_prefix("LON_X").unwrap().name, "London");
