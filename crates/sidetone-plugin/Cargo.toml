@@ -1,0 +1,20 @@
+[package]
+name = "sidetone-plugin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Sidetone: native VATSIM pilot client for X-Plane 12"
+
+[lib]
+name = "sidetone"
+crate-type = ["cdylib"]
+test = false
+doctest = false
+
+[dependencies]
+sidetone-xplm.workspace = true
+sidetone-ui.workspace = true
+sidetone-core.workspace = true
+sidetone-vatsim.workspace = true
+sidetone-services.workspace = true
+log.workspace = true

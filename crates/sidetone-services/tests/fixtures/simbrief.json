@@ -1,0 +1,11 @@
+{
+  "fetch": {"userid": "123456", "static_id": "", "status": "Success", "time": "0.01"},
+  "general": {"icao_airline": "BAW", "flight_number": "123", "initial_altitude": "35000", "costindex": "30", "route": "CPT3J CPT UL9 KENET"},
+  "origin": {"icao_code": "EGLL", "plan_rwy": "27R"},
+  "destination": {"icao_code": "ENBR", "plan_rwy": "17"},
+  "alternate": {"icao_code": "ENZV"},
+  "aircraft": {"icaocode": "A20N", "reg": "G-TTNA"},
+  "times": {"est_time_enroute": 6720},
+  "navlog": {"fix": [{"ident": "CPT", "pos_lat": "51.4920", "pos_long": "-1.2197"}, {"ident": "KENET", "pos_lat": 51.69, "pos_long": -1.80}]},
+  "atc": {"callsign": "BAW123", "flightplan_text": "(FPL-BAW123-IS -A20N/M-SDE2E3FGHIJ1RWY/LB1 -EGLL0900 -N0450F350 CPT3J CPT UL9 KENET -ENBR0152 ENZV)"}
+}

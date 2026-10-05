@@ -1,0 +1,27 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/sidetonehq/sidetone"
+
+[workspace.dependencies]
+sidetone-xplm-sys = { path = "crates/sidetone-xplm-sys" }
+sidetone-xplm = { path = "crates/sidetone-xplm" }
+sidetone-ui = { path = "crates/sidetone-ui" }
+sidetone-core = { path = "crates/sidetone-core" }
+sidetone-vatsim = { path = "crates/sidetone-vatsim" }
+sidetone-services = { path = "crates/sidetone-services" }
+dear-imgui-rs = "0.18"
+serde = { version = "1", features = ["derive"] }
+toml = "0.9"
+log = "0.4"
+crossbeam-channel = "0.5"
+
+[profile.release]
+panic = "unwind"
+lto = "thin"
+debug = "line-tables-only"

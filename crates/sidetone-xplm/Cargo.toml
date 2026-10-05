@@ -1,0 +1,13 @@
+[package]
+name = "sidetone-xplm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Safe, main-thread wrappers over the X-Plane SDK"
+
+[dependencies]
+sidetone-xplm-sys.workspace = true
+
+[lib]
+test = false
+doctest = false

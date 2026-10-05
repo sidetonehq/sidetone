@@ -1,0 +1,5 @@
+/target
+/dist
+.DS_Store
+# Private planning notes (business model, decision log) — never published.
+/docs/internal/

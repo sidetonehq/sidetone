@@ -1,0 +1,14 @@
+[package]
+name = "sidetone-xplm-sys"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Raw bindings to the X-Plane SDK 4.3 (XPLM + XPWidgets)"
+links = "XPLM"
+
+[build-dependencies]
+bindgen = "0.73"
+
+[lib]
+test = false
+doctest = false

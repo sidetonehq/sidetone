@@ -1,0 +1,4 @@
+[
+  {"callsign": "EGLL_TWR", "transceivers": [{"id": 0, "frequency": 118700004, "latDeg": 51.4775, "lonDeg": -0.4614, "heightMslM": 40.0, "heightAglM": 15.0}]},
+  {"callsign": "ENBR_TWR", "transceivers": [{"id": 0, "frequency": 119100000, "latDeg": 60.2935, "lonDeg": 5.2181, "heightMslM": 50.0, "heightAglM": 15.0}]}
+]

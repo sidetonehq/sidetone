@@ -1,0 +1,21 @@
+{
+  "general": {"version": 3, "update_timestamp": "2026-10-05T17:51:11Z", "connected_clients": 2203, "unique_users": 2083},
+  "pilots": [
+    {"cid": 1234567, "name": "Test Pilot", "callsign": "BAW123", "latitude": 51.47, "longitude": -0.45, "altitude": 0, "groundspeed": 0, "transponder": "2000",
+     "flight_plan": {"flight_rules": "I", "aircraft_short": "A320", "departure": "EGLL", "arrival": "ENBR", "altitude": "35000", "route": "DCT", "remarks": "/V/"}}
+  ],
+  "controllers": [
+    {"cid": 1, "name": "A", "callsign": "EGLL_TWR", "frequency": "118.700", "facility": 4, "rating": 3, "text_atis": null},
+    {"cid": 2, "name": "B", "callsign": "LON_S_CTR", "frequency": "129.425", "facility": 6, "rating": 5, "text_atis": ["London Control (South) | Feedback welcome"]},
+    {"cid": 3, "name": "C", "callsign": "ENBR_TWR", "frequency": "119.105", "facility": 4, "rating": 4, "text_atis": ["Flesland Tower | DCL - ENBR"]},
+    {"cid": 4, "name": "D", "callsign": "BS_OBS", "frequency": "199.998", "facility": 0, "rating": 1, "text_atis": null}
+  ],
+  "atis": [
+    {"cid": 5, "name": "E", "callsign": "ENBR_ATIS", "frequency": "125.255", "facility": 4, "rating": 3, "atis_code": "C",
+     "text_atis": ["THIS IS FLESLAND INFORMATION CHARLIE .. TIME 1720 .. EXPECT ILS"]}
+  ],
+  "prefiles": [
+    {"cid": 7654321, "callsign": "SAS42", "flight_plan": {"flight_rules": "I", "departure": "EGLL", "arrival": "ESSA"}}
+  ],
+  "facilities": []
+}

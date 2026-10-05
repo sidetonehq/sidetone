@@ -1,0 +1,13 @@
+[package]
+name = "sidetone-vatsim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "VATSIM public data: feeds, station naming, frequency matching, METAR, stats"
+
+[dependencies]
+serde.workspace = true
+serde_json = "1"
+ureq = { version = "3", features = ["json"] }
+log.workspace = true
+crossbeam-channel.workspace = true
