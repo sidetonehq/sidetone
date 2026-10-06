@@ -1,7 +1,7 @@
 //! Turns successive VATSIM snapshots into pilot-facing notices: ATIS letter changes, METAR
-//! changes and friends coming online. The first observation of anything never alerts.
+//! changes and events at your airports. The first observation of anything never alerts.
 
-use crate::settings::{Friend, Settings};
+use crate::settings::Settings;
 use crate::state::Route;
 use sidetone_services::simbrief::Plan;
 use sidetone_vatsim::feed::DataFeed;
@@ -12,18 +12,7 @@ use std::collections::{HashMap, HashSet};
 pub struct Watcher {
     atis_codes: HashMap<String, String>,
     metars: HashMap<String, String>,
-    friends_online: Option<HashSet<String>>,
     events_announced: HashSet<u64>,
-}
-
-/// Where a friend is right now.
-#[derive(Clone, Debug, PartialEq)]
-pub struct FriendStatus {
-    pub key: String,
-    pub label: String,
-    pub online_as: Option<String>,
-    /// e.g. "A320 EGLL → LEMD" or "Heathrow Tower 118.500".
-    pub detail: String,
 }
 
 impl Watcher {
@@ -72,48 +61,6 @@ impl Watcher {
         }
         notices
     }
-
-    /// Friends' current status, plus notices for anyone who just connected.
-    pub fn friends(&mut self, feed: &DataFeed, stations: &[Station], friends: &[Friend]) -> (Vec<FriendStatus>, Vec<String>) {
-        let statuses: Vec<FriendStatus> = friends.iter().map(|f| status(feed, stations, f)).collect();
-        let online: HashSet<String> = statuses.iter().filter(|s| s.online_as.is_some()).map(|s| s.key.clone()).collect();
-        let notices = match &self.friends_online {
-            Some(before) => statuses
-                .iter()
-                .filter(|s| s.online_as.is_some() && !before.contains(&s.key))
-                .map(|s| format!("{} is online as {}", s.label, s.online_as.as_deref().unwrap_or_default()))
-                .collect(),
-            None => Vec::new(),
-        };
-        self.friends_online = Some(online);
-        (statuses, notices)
-    }
-}
-
-pub fn friend_key(f: &Friend) -> String {
-    match (&f.cid, &f.callsign) {
-        (Some(cid), _) => cid.to_string(),
-        (None, Some(cs)) => cs.to_ascii_uppercase(),
-        (None, None) => String::new(),
-    }
-}
-
-fn status(feed: &DataFeed, stations: &[Station], f: &Friend) -> FriendStatus {
-    let key = friend_key(f);
-    let label = if f.label.is_empty() { key.clone() } else { f.label.clone() };
-    let matches = |cid: u32, callsign: &str| f.cid == Some(cid) || f.callsign.as_deref().is_some_and(|c| c.eq_ignore_ascii_case(callsign));
-    if let Some(p) = feed.pilots.iter().find(|p| matches(p.cid, &p.callsign)) {
-        let detail = match &p.flight_plan {
-            Some(fp) => format!("{} {} → {}", fp.aircraft_short, fp.departure, fp.arrival),
-            None => "No flight plan".into(),
-        };
-        return FriendStatus { key, label, online_as: Some(p.callsign.clone()), detail };
-    }
-    if let Some(s) = stations.iter().find(|s| matches(s.cid, &s.callsign)) {
-        let detail = format!("{} {}", s.name, crate::radio::format_com_khz(s.frequency_khz));
-        return FriendStatus { key, label, online_as: Some(s.callsign.clone()), detail };
-    }
-    FriendStatus { key, label, online_as: None, detail: String::new() }
 }
 
 /// Finds the pilot's CID from the public feed: a live connection with `callsign`, else a
@@ -169,7 +116,6 @@ pub fn route(settings: &Settings, simbrief: Option<&Plan>, feed: Option<&DataFee
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sidetone_vatsim::feed::{Controller, Pilot};
     use sidetone_vatsim::naming::Facility;
 
     fn atis(code: &str) -> Station {
@@ -217,29 +163,6 @@ mod tests {
         assert!(w.metars(&m).is_empty());
         m.insert("EGLL".into(), "EGLL 2 Q1021".into());
         assert_eq!(w.metars(&m).len(), 1);
-    }
-
-    #[test]
-    fn friends_coming_online() {
-        let mut w = Watcher::default();
-        let friends =
-            vec![Friend { cid: Some(42), callsign: None, label: "Sam".into() }, Friend { cid: None, callsign: Some("egll_twr".into()), label: String::new() }];
-        let empty = DataFeed::default();
-        let (statuses, notices) = w.friends(&empty, &[], &friends);
-        assert!(notices.is_empty());
-        assert!(statuses.iter().all(|s| s.online_as.is_none()));
-
-        let mut feed = DataFeed::default();
-        feed.pilots.push(Pilot { cid: 42, callsign: "BAW1".into(), ..Default::default() });
-        feed.controllers.push(Controller { cid: 7, callsign: "EGLL_TWR".into(), frequency: "118.500".into(), facility: 4, ..Default::default() });
-        let mut twr = atis("A");
-        twr.callsign = "EGLL_TWR".into();
-        twr.atis_code = None;
-        let (statuses, notices) = w.friends(&feed, &[twr], &friends);
-        assert_eq!(notices, vec!["Sam is online as BAW1", "EGLL_TWR is online as EGLL_TWR"]);
-        assert_eq!(statuses[0].online_as.as_deref(), Some("BAW1"));
-        let (_, notices) = w.friends(&feed, &[], &friends[..1]);
-        assert!(notices.is_empty());
     }
 
     #[test]

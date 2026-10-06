@@ -12,10 +12,22 @@ pub struct Settings {
     pub audio: AudioSettings,
     pub ui: UiSettings,
     pub vatsim: VatsimSettings,
-    pub friends: Vec<Friend>,
     /// The current flight's clearance & notes card.
     pub flight: crate::clearance::FlightNotes,
     pub integrations: Integrations,
+    pub setup: SetupSettings,
+}
+
+/// First-run guidance: the "Get set up" checklist and the panel's welcome line.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SetupSettings {
+    /// The pilot hid the checklist (Settings can bring it back).
+    pub dismissed: bool,
+    /// Push-to-talk has been pressed at least once, so it's bound.
+    pub ptt_tested: bool,
+    /// The main window has been opened, so the panel stops saying "click to get started".
+    pub opened_window: bool,
 }
 
 /// Optional bridges to other software. All off by default.
@@ -37,17 +49,6 @@ pub struct VatsimSettings {
     pub arrival: String,
     /// Post ATIS letter / METAR changes for your airports to the panel.
     pub weather_alerts: bool,
-    /// Post a notice when a friend connects.
-    pub friend_alerts: bool,
-}
-
-/// Someone to watch for on the network, by CID and/or callsign.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Friend {
-    pub cid: Option<u32>,
-    pub callsign: Option<String>,
-    pub label: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -56,7 +57,7 @@ pub struct PanelSettings {
     pub visible: bool,
     /// Background opacity when the mouse is elsewhere (0.0–1.0). Fully opaque on hover.
     pub idle_opacity: f32,
-    /// Saved top-left position in global boxels; `None` = default top-right placement.
+    /// Saved top-left position in global boxels; `None` = default top-left placement.
     pub position: Option<(i32, i32)>,
 }
 
@@ -94,7 +95,7 @@ impl Default for WindowSettings {
 
 impl Default for VatsimSettings {
     fn default() -> Self {
-        VatsimSettings { cid: None, departure: String::new(), arrival: String::new(), weather_alerts: true, friend_alerts: true }
+        VatsimSettings { cid: None, departure: String::new(), arrival: String::new(), weather_alerts: true }
     }
 }
 

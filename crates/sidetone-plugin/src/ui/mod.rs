@@ -4,16 +4,20 @@ pub mod atc;
 pub mod clearance;
 pub mod cpdlc;
 pub mod events;
-pub mod flight_plan;
+pub mod flight;
 pub mod main_window;
 pub mod panel;
+pub mod setup;
 
-use crate::app::Action;
+use crate::app::{Action, Redacted};
 use sidetone_core::settings::Settings;
 use sidetone_core::state::{AppState, Message};
-use sidetone_core::watch::{FriendStatus, Watcher};
+use sidetone_core::watch::Watcher;
 use sidetone_services::hoppie::Session;
+use sidetone_services::keychain::Secret;
 use sidetone_services::simbrief::Plan;
+use sidetone_ui::imgui::{InputTextFlags, Ui};
+use sidetone_ui::theme;
 use sidetone_vatsim::geo::LatLon;
 
 pub struct Model {
@@ -22,7 +26,6 @@ pub struct Model {
     pub actions: Vec<Action>,
     pub chat_input: String,
     pub watcher: Watcher,
-    pub friend_statuses: Vec<FriendStatus>,
     pub nearest_checked_at: Option<LatLon>,
     pub requested_airports: Vec<String>,
     pub requested_cid: Option<u32>,
@@ -55,8 +58,8 @@ pub struct UiState {
     pub atc_search: String,
     pub atc_show_all: bool,
     pub cid_input: String,
-    pub friend_input: String,
-    pub friend_label: String,
+    /// A tab to bring to the front on the next frame (e.g. "See all" on the Flight tab).
+    pub select_tab: Option<Tab>,
     pub hoppie_code_input: String,
     pub simbrief_user_input: String,
     pub cpdlc_callsign: String,
@@ -76,7 +79,6 @@ impl Model {
             actions: Vec::new(),
             chat_input: String::new(),
             watcher: Watcher::default(),
-            friend_statuses: Vec::new(),
             nearest_checked_at: None,
             requested_airports: Vec::new(),
             requested_cid: None,
@@ -124,10 +126,25 @@ impl Model {
         String::new()
     }
 
+    /// Push-to-talk was pressed, so it's bound: ticks the setup checklist (saved once).
+    pub fn note_ptt_works(&mut self) {
+        if self.state.ptt_pressed && !self.settings.setup.ptt_tested {
+            self.settings.setup.ptt_tested = true;
+            self.settings_dirty = true;
+        }
+    }
+
     pub fn recompute_route(&mut self) {
         let feed = self.state.network.snapshot.as_ref().map(|s| &s.feed);
         self.state.route = sidetone_core::watch::route(&self.settings, self.simbrief.as_deref(), feed);
     }
+}
+
+/// Main window tabs that other screens can switch to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tab {
+    Flight,
+    Atc,
 }
 
 /// A section heading: small dim caps with breathing room, used on every tab for consistency.
@@ -151,6 +168,50 @@ pub fn tune_buttons(ui: &sidetone_ui::imgui::Ui, m: &mut Model, khz: i32) {
         }
         if com == Com::One {
             ui.same_line();
+        }
+    }
+}
+
+/// The VATSIM CID box; saved when you leave the field.
+pub fn cid_field(ui: &Ui, m: &mut Model, label: &str) {
+    let unit = ui.current_font_size() / theme::FONT_SIZE;
+    ui.set_next_item_width(120.0 * unit);
+    ui.input_text(label, &mut m.ui.cid_input).hint("e.g. 1234567").build();
+    if ui.is_item_deactivated_after_edit() {
+        let input = m.ui.cid_input.trim();
+        m.settings.vatsim.cid = input.parse().ok();
+        if m.settings.vatsim.cid.is_none() && !input.is_empty() {
+            m.ui.cid_input.clear();
+        }
+        m.actions.push(Action::SaveSettings);
+    }
+}
+
+/// A Keychain-backed field: type and Save, or Remove once saved. The value never stays in the model.
+pub fn secret_field(ui: &Ui, m: &mut Model, secret: Secret, label: &str, saved: bool, masked: bool) {
+    let _id = ui.push_id(label);
+    let unit = ui.current_font_size() / theme::FONT_SIZE;
+    let buffer = match secret {
+        Secret::SimbriefUsername => &mut m.ui.simbrief_user_input,
+        Secret::HoppieLogon => &mut m.ui.hoppie_code_input,
+    };
+    ui.set_next_item_width(180.0 * unit);
+    let flags = if masked { InputTextFlags::PASSWORD } else { InputTextFlags::NONE };
+    let hint = match (saved, secret) {
+        (true, _) => "Saved — type to replace",
+        (false, Secret::SimbriefUsername) => "e.g. 123456",
+        (false, Secret::HoppieLogon) => "",
+    };
+    let entered = ui.input_text(label, buffer).hint(hint).flags(flags).enter_returns_true(true).build();
+    ui.same_line();
+    if (ui.small_button("Save") || entered) && !buffer.trim().is_empty() {
+        let value = std::mem::take(buffer);
+        m.actions.push(Action::SaveSecret(secret, Redacted(value)));
+    }
+    if saved {
+        ui.same_line();
+        if ui.small_button("Remove") {
+            m.actions.push(Action::DeleteSecret(secret));
         }
     }
 }

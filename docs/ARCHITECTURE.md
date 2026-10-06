@@ -91,4 +91,6 @@ See [VATSIM.md](VATSIM.md) for exactly what Sidetone fetches and how often.
 1. Add `src/ui/<screen>.rs` in `sidetone-plugin` with a `build(ui, &mut Model)` function.
 2. Read from `Model`; never call network or X-Plane APIs from UI code. To change something,
    push an `Action` (`app.rs`), which the flight loop applies.
+   For a main window tab, add it in `ui/main_window.rs`; to let another screen switch to it, add
+   a variant to `ui::Tab` and set `m.ui.select_tab`.
 3. Put any logic worth testing in `sidetone-core` (or the relevant data crate) with tests.

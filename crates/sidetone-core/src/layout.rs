@@ -18,12 +18,12 @@ impl Bounds {
     }
 }
 
-/// Default spot for the minimal panel: top-right of the screen, inset by `margin`.
+/// Default spot for the minimal panel: top-left of the screen, inset by `margin`.
 /// The top margin is larger so the panel clears X-Plane's menu bar.
 pub fn panel_default(screen: Bounds, width: i32, height: i32, margin: i32) -> Bounds {
     let top = screen.top - margin - MENU_BAR_HEIGHT;
-    let right = screen.right - margin;
-    Bounds { left: right - width, top, right, bottom: top - height }
+    let left = screen.left + margin;
+    Bounds { left, top, right: left + width, bottom: top - height }
 }
 
 /// Places a window of the given size with its top-left at `(left, top)`, kept fully on screen.
@@ -51,9 +51,9 @@ mod tests {
     const SCREEN: Bounds = Bounds { left: 0, top: 1080, right: 1920, bottom: 0 };
 
     #[test]
-    fn panel_sits_top_right() {
+    fn panel_sits_top_left() {
         let b = panel_default(SCREEN, 320, 64, 12);
-        assert_eq!(b.right, 1908);
+        assert_eq!(b.left, 12);
         assert_eq!(b.width(), 320);
         assert_eq!(b.height(), 64);
         assert_eq!(b.top, 1080 - 12 - MENU_BAR_HEIGHT);

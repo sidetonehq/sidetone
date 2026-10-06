@@ -9,5 +9,6 @@ pub mod layout;
 pub mod logging;
 pub mod radio;
 pub mod settings;
+pub mod setup;
 pub mod state;
 pub mod watch;

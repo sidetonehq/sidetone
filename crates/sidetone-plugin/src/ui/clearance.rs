@@ -1,4 +1,4 @@
-//! Clearance tab: what you need to request a clearance, the numbers you were given, and
+//! Clearance tab: your SimBrief plan, what you need to request a clearance, the numbers you were given, and
 //! notes. Auto-filled from clearances (PDC/CPDLC), SimBrief, the VATSIM feed and METARs —
 //! always editable. Sidetone never changes cockpit settings for you here.
 
@@ -10,10 +10,46 @@ use sidetone_ui::theme;
 use sidetone_vatsim::naming::Facility;
 
 pub fn build(ui: &Ui, m: &mut Model) {
+    simbrief(ui, m);
     request(ui, m);
     clearance(ui, m);
     route(ui, m);
     notes(ui, m);
+}
+
+/// SimBrief import and a one-line summary of the plan (filing arrives with the network client).
+fn simbrief(ui: &Ui, m: &mut Model) {
+    section(ui, "FLIGHT PLAN");
+    let busy = m.simbrief_status.as_deref() == Some("Importing…");
+    {
+        let _disabled = ui.begin_disabled_with_cond(busy || !m.simbrief_user_saved);
+        if ui.small_button(if m.simbrief.is_some() { "Re-import from SimBrief" } else { "Import from SimBrief" }) {
+            m.actions.push(Action::ImportSimBrief);
+        }
+    }
+    ui.same_line();
+    match (&m.simbrief_status, &m.simbrief) {
+        (Some(status), _) => ui.text_colored(if busy { theme::TEXT_DIM } else { theme::WARN }, status),
+        (None, _) if !m.simbrief_user_saved => ui.text_disabled("Add your SimBrief Pilot ID in Settings first."),
+        (None, None) => ui.text_disabled("No plan imported."),
+        (None, Some(plan)) => {
+            ui.text_colored(theme::ACCENT, &plan.callsign);
+            ui.same_line();
+            let runway = |icao: &str, rwy: &str| if rwy.is_empty() { icao.to_string() } else { format!("{icao} {rwy}") };
+            let mut summary = format!(
+                "{} · {} → {} · {} · {}",
+                plan.aircraft_icao,
+                runway(&plan.origin, &plan.origin_runway),
+                runway(&plan.destination, &plan.destination_runway),
+                plan.cruise_label(),
+                plan.ete_label()
+            );
+            if !plan.cost_index.is_empty() {
+                summary.push_str(&format!(" · CI {}", plan.cost_index));
+            }
+            ui.text_wrapped(summary);
+        }
+    }
 }
 
 /// The departure ATIS letter on the network now, and the station broadcasting it.
@@ -64,7 +100,7 @@ fn request(ui: &Ui, m: &mut Model) {
     let dep = m.state.route.departure.clone().unwrap_or_default();
     let arr = m.state.route.arrival.clone().unwrap_or_default();
     if dep.is_empty() || arr.is_empty() {
-        ui.text_disabled("Import your SimBrief plan or set departure and arrival in the ATC tab to prepare your request.");
+        ui.text_disabled("Import your SimBrief plan or set departure and arrival on the Flight tab to prepare your request.");
         return;
     }
     let vatspy = m.state.network.vatspy.clone();
@@ -283,6 +319,12 @@ fn route(ui: &Ui, m: &mut Model) {
                 ui.text_colored(theme::WARN, "Your SimBrief route differs from the one filed on VATSIM:");
             }
             block(ui, "SimBrief", &plan.origin, &plan.destination, &plan.cruise_label(), &plan.alternate, &plan.route);
+        }
+        if !plan.icao_flight_plan.trim().is_empty() {
+            ui.text_disabled("ICAO flight plan");
+            let wrap = ui.push_text_wrap_pos(0.0);
+            ui.text_colored(theme::TEXT, plan.icao_flight_plan.trim());
+            drop(wrap);
         }
     }
 }

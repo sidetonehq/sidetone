@@ -1,4 +1,4 @@
-//! The minimal top-right panel: status, both radios with station names, and a message ticker.
+//! The minimal top-left panel: status, both radios with station names, and a message ticker.
 //! Translucent until hovered; drag anywhere to move, click to open the main window.
 
 use super::Model;
@@ -85,14 +85,16 @@ pub fn build(frame: &mut HostFrame, m: &mut Model) {
     // Row 3, by priority: typing indicator, a fresh message, the frequency hint, idle.
     let ticker = if m.state.keyboard_captured {
         ("Typing in Sidetone · Esc or Enter returns keys to X-Plane".to_string(), theme::ACCENT)
+    } else if !m.settings.setup.opened_window {
+        ("Welcome to Sidetone · click to get started".to_string(), theme::ACCENT)
     } else if let Some(msg) = m.state.latest_message(frame.now, TICKER_SECONDS) {
         (format!("{}: {}", msg.from, msg.text), theme::TEXT)
     } else {
         match &m.state.coverage_hint {
             Some(CoverageHint::Tune { name, khz }) if m.state.on_ground => {
-                (format!("Your first call: {name} {} · click to open ATC", format_com_khz(*khz)), theme::ACCENT)
+                (format!("Your first call: {name} {} · click for more", format_com_khz(*khz)), theme::ACCENT)
             }
-            Some(CoverageHint::Tune { name, khz }) => (format!("{name} {} covers you · click to open ATC", format_com_khz(*khz)), theme::ACCENT),
+            Some(CoverageHint::Tune { name, khz }) => (format!("{name} {} covers you · click for more", format_com_khz(*khz)), theme::ACCENT),
             Some(CoverageHint::Unicom) => ("No ATC overhead · monitor UNICOM 122.800".to_string(), theme::WARN),
             None => ("No new messages".to_string(), theme::TEXT_DIM),
         }

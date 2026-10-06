@@ -180,7 +180,9 @@ impl App {
         if let Some(ptt) = Command::create("sidetone/ptt", "Sidetone: push-to-talk (hold)") {
             let model = model.clone();
             handlers.push(CommandHandler::register(ptt, true, move |phase| {
-                model.borrow_mut().state.ptt_pressed = phase != Phase::End;
+                let mut m = model.borrow_mut();
+                m.state.ptt_pressed = phase != Phase::End;
+                m.note_ptt_works();
                 false
             }));
         }
@@ -191,6 +193,7 @@ impl App {
                 let mut m = model.borrow_mut();
                 if m.settings.audio.ptt_uses_xplane_atc_command {
                     m.state.ptt_pressed = phase != Phase::End;
+                    m.note_ptt_works();
                 }
                 true
             }));
@@ -367,6 +370,10 @@ fn apply(
             main_window.set_visible(!main_window.is_visible());
             if main_window.is_visible() {
                 m.state.unread = 0;
+                if !m.settings.setup.opened_window {
+                    m.settings.setup.opened_window = true;
+                    return true;
+                }
             }
             false
         }
@@ -479,7 +486,7 @@ fn hoppie_action(op: HoppieAction, m: &mut Model, services: &services::Worker) {
         HoppieAction::Pdc { station, stand } => {
             let (dep, arr) = (m.state.route.departure.clone().unwrap_or_default(), m.state.route.arrival.clone().unwrap_or_default());
             if dep.is_empty() || arr.is_empty() {
-                m.system_message("A PDC needs your departure and arrival (import SimBrief or set them in the ATC tab).", now);
+                m.system_message("A PDC needs your departure and arrival (import SimBrief or set them on the Flight tab).", now);
                 None
             } else {
                 let aircraft = m.simbrief.as_ref().map(|p| p.aircraft_icao.clone()).unwrap_or_default();
@@ -593,11 +600,6 @@ fn on_vatsim(m: &mut Model, update: Update, now: f32) {
             let mut notices = Vec::new();
             if m.settings.vatsim.weather_alerts {
                 notices.extend(m.watcher.atis(&snapshot.stations, &airports));
-            }
-            let (statuses, friend_notices) = m.watcher.friends(&snapshot.feed, &snapshot.stations, &m.settings.friends);
-            m.friend_statuses = statuses;
-            if m.settings.vatsim.friend_alerts {
-                notices.extend(friend_notices);
             }
             for notice in notices {
                 m.state.push_message("VATSIM", notice, now);
@@ -732,7 +734,7 @@ fn submit_chat(text: &str, m: &mut Model, sim: &Sim) {
         Ok(DotCommand::Clear) => m.state.messages.clear(),
         Ok(DotCommand::Metar(icao)) => match m.state.network.metars.get(&icao).cloned() {
             Some(metar) => m.system_message(metar, now),
-            None => m.system_message(format!("No METAR loaded for {icao}. Add it as your departure or arrival in the ATC tab."), now),
+            None => m.system_message(format!("No METAR loaded for {icao}. Add it as your departure or arrival on the Flight tab."), now),
         },
         Ok(DotCommand::PrivateMessage { .. } | DotCommand::Atis(_)) => {
             m.system_message("Private messages and ATIS requests need a VATSIM connection. Use your pilot client for these until Sidetone is approved.", now)

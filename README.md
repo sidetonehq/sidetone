@@ -4,7 +4,7 @@
 [![Licence: Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
 
 A native VATSIM pilot client for X-Plane 12 on macOS: a plugin that lives inside the sim, with a
-small panel in the top-right corner and a full window one click away.
+small panel in the top-left corner and a full window one click away.
 
 > **Status:** pre-release. Everything that uses VATSIM's *public* data works today alongside
 > your current pilot client. Connecting to the network as a pilot (FSD + voice) needs VATSIM's
@@ -19,13 +19,17 @@ small panel in the top-right corner and a full window one click away.
 
 - **Panel**: your callsign, COM1/COM2 with the station you'd hear by its spoken name
   ("Heathrow Tower"), transponder check, messages and a "who should I be talking to" hint.
-- **ATC**: online controllers near you with one-click tuning; ATIS letters and METARs for your
-  airports with change alerts; **ATC along your route**; event badges.
-- **Clearance & notes**: squawk, initial altitude, SID, runway, departure frequency, QNH,
-  ATIS, stand and notes, auto-filled from PDC/CPDLC clearances, SimBrief, VATSIM and METARs.
+- **Get set up**: a checklist on first open (CID, push-to-talk test, SimBrief, Hoppie, xPilot)
+  that ticks itself off as you go.
+- **Flight**: who to call now, ATIS letters and METARs for your airports with change alerts,
+  event badges, and **ATC along your route** with one-click tuning.
+- **ATC**: every online controller, grouped by type and nearest first, with search and one-click tuning.
+- **Clearance & notes**: your SimBrief plan, then squawk, initial altitude, SID, runway,
+  departure frequency, QNH, ATIS, stand and notes, auto-filled from PDC/CPDLC clearances,
+  SimBrief, VATSIM and METARs. Shows your filed route and warns if it differs from SimBrief.
 - **CPDLC & PDC** via Hoppie ACARS: logon, handovers, WILCO/UNABLE/STANDBY, requests.
-- **SimBrief** import, **Friends** online alerts, **VATSIM events**, pilot hours. Your VATSIM
-  CID is found automatically from your live callsign or SimBrief plan.
+- **SimBrief** import, **VATSIM events**, pilot hours. Your VATSIM CID is found automatically
+  from your live callsign or SimBrief plan.
 - **xPilot companion mode** (optional, off by default): until Sidetone connects natively, show
   xPilot's connection in the panel, light up COM receive indicators, and use one push-to-talk
   key for both. Read-only towards the network.
