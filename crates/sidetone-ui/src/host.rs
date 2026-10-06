@@ -54,6 +54,8 @@ enum Input {
     Wheel(f32, f32),
     Key(Key, bool),
     Char(char),
+    /// Finish editing the active field and keep what was typed. (ImGui's Escape would revert it.)
+    EndEditing,
 }
 
 struct Shared {
@@ -223,8 +225,7 @@ impl Host {
 
         // Safety net: never sit on the keyboard while the pilot is clearly elsewhere.
         if has_focus && !hovered && now - self.last_key_time > FOCUS_IDLE_SECONDS {
-            self.inputs.push(Input::Key(Key::Escape, true));
-            self.inputs.push(Input::Key(Key::Escape, false));
+            self.inputs.push(Input::EndEditing);
             window.release_keyboard_focus();
         }
 
@@ -286,6 +287,7 @@ impl Host {
             if !hovered {
                 io.add_mouse_pos_event([-f32::MAX, -f32::MAX]);
             }
+            let mut end_editing = false;
             for input in inputs {
                 match input {
                     Input::MousePos(x, y) => io.add_mouse_pos_event([x, y]),
@@ -293,10 +295,15 @@ impl Host {
                     Input::Wheel(x, y) => io.add_mouse_wheel_event([x, y]),
                     Input::Key(key, down) => io.add_key_event(key, down),
                     Input::Char(c) => io.add_input_character(c),
+                    Input::EndEditing => end_editing = true,
                 }
             }
 
             let frame = ctx.begin_frame();
+            if end_editing {
+                // Deactivates without reverting; the field reports "deactivated after edit", so it saves.
+                unsafe { dear_imgui_rs::sys::igClearActiveID() };
+            }
             {
                 let ui = frame.ui();
                 let [w, h] = [geometry.width() as f32 * scale, geometry.height() as f32 * scale];
@@ -440,6 +447,11 @@ impl WindowHandler for Host {
             .into_iter()
             .filter_map(|(on, key)| on.then_some(key))
             .collect();
+        // Escape finishes editing and keeps the text (the keyboard then goes back to X-Plane).
+        if map_key(event.virtual_key) == Some(Key::Escape) {
+            self.inputs.push(Input::EndEditing);
+            return;
+        }
         if event.control || event.alt {
             log::debug!("Shortcut key: vk={:#04x} cmd={} alt={} shift={}", event.virtual_key, event.control, event.alt, event.shift);
         }
@@ -462,8 +474,7 @@ impl WindowHandler for Host {
     }
 
     fn focus_lost(&mut self, _window: WindowRef) {
-        self.inputs.push(Input::Key(Key::Escape, true));
-        self.inputs.push(Input::Key(Key::Escape, false));
+        self.inputs.push(Input::EndEditing);
     }
 }
 

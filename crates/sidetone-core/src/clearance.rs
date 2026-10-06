@@ -12,7 +12,8 @@ pub struct FlightNotes {
     pub initial_altitude: String,
     pub sid: String,
     pub runway: String,
-    pub departure_freq: String,
+    /// e.g. "FL070", from the departure ATIS.
+    pub transition_level: String,
     pub qnh: String,
     pub atis: String,
     pub stand: String,
@@ -21,6 +22,8 @@ pub struct FlightNotes {
     pub atis_auto: bool,
     /// Same for QNH (from the departure METAR).
     pub qnh_auto: bool,
+    /// Same for the transition level (from the departure ATIS).
+    pub transition_level_auto: bool,
 }
 
 /// What a clearance text told us.
@@ -30,7 +33,6 @@ pub struct Parsed {
     pub initial_altitude: Option<String>,
     pub sid: Option<String>,
     pub runway: Option<String>,
-    pub departure_freq: Option<String>,
 }
 
 impl Parsed {
@@ -79,10 +81,6 @@ fn altitude(t: &str, next: Option<&str>) -> Option<String> {
     None
 }
 
-fn is_frequency(t: &str) -> bool {
-    crate::radio::parse_com_khz(t).is_some() && t.contains('.')
-}
-
 /// Extracts clearance items from PDC/CPDLC text (free-form; formats vary by vACC).
 pub fn parse(text: &str) -> Parsed {
     let t = tokens(text);
@@ -114,13 +112,6 @@ pub fn parse(text: &str) -> Parsed {
             }
             _ => {}
         }
-        // "DEP FREQ 120.525", "DEPARTURE FREQUENCY 120.525"
-        if matches!(word.as_str(), "DEP" | "DEPARTURE")
-            && matches!(next, Some("FREQ" | "FREQUENCY" | "FRQ"))
-            && let Some(f) = after(3).find(|f| is_frequency(f))
-        {
-            p.departure_freq.get_or_insert(f.to_string());
-        }
     }
     p
 }
@@ -138,7 +129,6 @@ impl FlightNotes {
         set(&mut self.initial_altitude, &p.initial_altitude);
         set(&mut self.sid, &p.sid);
         set(&mut self.runway, &p.runway);
-        set(&mut self.departure_freq, &p.departure_freq);
         *self != before
     }
 
@@ -172,6 +162,24 @@ pub fn qnh_from_metar(metar: &str) -> Option<String> {
         .map(String::from)
 }
 
+/// Transition level from ATIS text: "TRANSITION LEVEL 70", "TRANS LEVEL FL070", "TRL 70" → "FL070".
+pub fn transition_level_from_atis(text: &str) -> Option<String> {
+    let t = tokens(text);
+    let level = |w: &str| {
+        let digits = w.strip_prefix("FL").unwrap_or(w);
+        let n: u32 = digits.parse().ok().filter(|_| (2..=3).contains(&digits.len()))?;
+        (20..=200).contains(&n).then(|| format!("FL{n:03}"))
+    };
+    t.iter().enumerate().find_map(|(i, w)| {
+        let skip = match (w.as_str(), t.get(i + 1).map(String::as_str)) {
+            ("TRANSITION" | "TRANS", Some("LEVEL" | "LVL")) => 2,
+            ("TRL" | "TRLVL", _) => 1,
+            _ => return None,
+        };
+        t.iter().skip(i + skip).take(2).find_map(|w| level(w))
+    })
+}
+
 /// The SID at the start of a SimBrief route string, if it starts with one.
 pub fn sid_from_route(route: &str) -> Option<String> {
     route.split_whitespace().next().filter(|t| is_sid(t)).map(String::from)
@@ -188,7 +196,6 @@ mod tests {
         assert_eq!(p.runway.as_deref(), Some("27R"));
         assert_eq!(p.sid.as_deref(), Some("CPT3J"));
         assert_eq!(p.initial_altitude.as_deref(), Some("6000 ft"));
-        assert_eq!(p.departure_freq, None, "WHEN RDY CALL FREQ is not the departure frequency");
     }
 
     #[test]
@@ -197,10 +204,19 @@ mod tests {
         assert_eq!(p.sid.as_deref(), Some("BPK5K"));
         assert_eq!(p.runway.as_deref(), Some("09L"));
         assert_eq!(p.initial_altitude.as_deref(), Some("FL070"));
-        assert_eq!(p.departure_freq.as_deref(), Some("120.525"));
         assert_eq!(p.squawk.as_deref(), Some("2341"));
         assert!(parse("CONTACT LONDON 129.425").is_empty());
         assert_eq!(parse("CLIMB TO @FL350@").initial_altitude.as_deref(), Some("FL350"));
+    }
+
+    #[test]
+    fn transition_level_from_atis_text() {
+        let atis = "HEATHROW INFORMATION E TIME 1050 RWY 27R IN USE TRANSITION LEVEL 70 QNH 1020";
+        assert_eq!(transition_level_from_atis(atis).as_deref(), Some("FL070"));
+        assert_eq!(transition_level_from_atis("TRANS LVL FL080").as_deref(), Some("FL080"));
+        assert_eq!(transition_level_from_atis("RWY 22 TRL 55, CAUTION").as_deref(), Some("FL055"));
+        assert_eq!(transition_level_from_atis("TRANSITION ALTITUDE 6000 FT"), None);
+        assert_eq!(transition_level_from_atis("QNH 1013"), None);
     }
 
     #[test]

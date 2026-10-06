@@ -82,6 +82,10 @@ back on Enter, Escape, when X-Plane reports focus loss, or â€” as a safety net â
 without typing while the mouse is outside the window. While it holds the keyboard the panel
 says so. Cmd+C/V/X/A/Z use the system clipboard.
 
+Leaving a field never discards what was typed. ImGui's Escape means "cancel and revert", so
+the host never forwards Escape: Escape, focus loss and the idle safety net all end editing with
+`ClearActiveID`, which keeps the text and lets the field report "deactivated after edit" (and save).
+
 ## Data sources
 
 See [VATSIM.md](VATSIM.md) for exactly what Sidetone fetches and how often.

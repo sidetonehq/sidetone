@@ -568,7 +568,7 @@ fn start_new_flight(m: &mut Model) {
 }
 
 /// Fills the clearance card from live data: the assigned squawk (VATSIM flight plan), the
-/// departure ATIS letter and QNH. Typed values are respected (see `FlightNotes::track`).
+/// departure ATIS letter, transition level and QNH. Typed values are respected (see `FlightNotes::track`).
 fn autofill_flight(m: &mut Model) {
     let Some(dep) = m.state.route.departure.clone() else { return };
     if let Some(snapshot) = m.state.network.snapshot.clone() {
@@ -579,9 +579,14 @@ fn autofill_flight(m: &mut Model) {
         {
             m.settings_dirty |= FlightNotes::fill(&mut m.settings.flight.squawk, &fp.assigned_transponder);
         }
-        if let Some(code) = stations::departure_atis(&snapshot.stations, &dep).and_then(|s| s.atis_code.clone()) {
+        if let Some(atis) = stations::departure_atis(&snapshot.stations, &dep) {
             let f = &mut m.settings.flight;
-            m.settings_dirty |= FlightNotes::track(&mut f.atis, &mut f.atis_auto, &code);
+            if let Some(code) = &atis.atis_code {
+                m.settings_dirty |= FlightNotes::track(&mut f.atis, &mut f.atis_auto, code);
+            }
+            if let Some(level) = clearance::transition_level_from_atis(&atis.text.join(" ")) {
+                m.settings_dirty |= FlightNotes::track(&mut f.transition_level, &mut f.transition_level_auto, &level);
+            }
         }
     }
     if let Some(qnh) = m.state.network.metars.get(&dep).and_then(|t| clearance::qnh_from_metar(t)) {

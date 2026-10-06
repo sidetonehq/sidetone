@@ -5,7 +5,7 @@
 use super::{Model, section, tune_buttons};
 use crate::app::Action;
 use sidetone_core::radio::{format_com_khz, format_squawk, is_valid_squawk, phonetic};
-use sidetone_ui::imgui::{InputTextFlags, TreeNodeFlags, Ui};
+use sidetone_ui::imgui::{InputTextFlags, TableColumnFlags, TableFlags, TreeNodeFlags, Ui};
 use sidetone_ui::theme;
 use sidetone_vatsim::naming::Facility;
 
@@ -208,31 +208,41 @@ fn clearance(ui: &Ui, m: &mut Model) {
 
     let upper = InputTextFlags::CHARS_UPPERCASE;
     let f = &mut m.settings.flight;
-    if let Some(_t) = ui.begin_table("clearance", 2) {
-        ui.table_next_row();
-        ui.table_next_column();
-        field(ui, "Squawk", "e.g. 4721", &mut f.squawk, InputTextFlags::CHARS_DECIMAL);
-        ui.table_next_column();
-        field(ui, "Initial alt", "e.g. FL060", &mut f.initial_altitude, upper);
-        ui.table_next_row();
-        ui.table_next_column();
-        field(ui, "SID", "e.g. CPT3J", &mut f.sid, upper);
-        ui.table_next_column();
-        field(ui, "Runway", "e.g. 27R", &mut f.runway, upper);
-        ui.table_next_row();
-        ui.table_next_column();
-        field(ui, "Dep freq", "e.g. 120.525", &mut f.departure_freq, InputTextFlags::NONE);
-        ui.table_next_column();
-        if field(ui, "QNH", "e.g. Q1022", &mut f.qnh, upper) {
-            f.qnh_auto = f.qnh.trim().is_empty(); // typed by the pilot: stop tracking
+    let (trans_edited, qnh_edited, atis_edited) = {
+        let fields: [(&str, &str, &mut String, InputTextFlags); 8] = [
+            ("Squawk", "e.g. 4721", &mut f.squawk, InputTextFlags::CHARS_DECIMAL),
+            ("Initial alt", "e.g. FL060", &mut f.initial_altitude, upper),
+            ("SID", "e.g. CPT3J", &mut f.sid, upper),
+            ("Runway", "e.g. 27R", &mut f.runway, upper),
+            ("Trans level", "e.g. FL070", &mut f.transition_level, upper),
+            ("QNH", "e.g. Q1022", &mut f.qnh, upper),
+            ("ATIS", "e.g. C", &mut f.atis, upper),
+            ("Stand", "e.g. 512", &mut f.stand, upper),
+        ];
+        // Fixed-width columns sit side by side at any window width; one column when too narrow.
+        let style = ui.clone_style();
+        let column_w = 105.0 * unit + field_w + 24.0 * unit;
+        let columns = if ui.content_region_avail()[0] >= column_w * 2.0 + style.cell_padding()[0] * 4.0 { 2 } else { 1 };
+        let mut edited = [false; 8];
+        if let Some(_t) = ui.begin_table_with_flags("clearance", columns, TableFlags::NONE) {
+            for c in 0..columns {
+                ui.table_setup_column_fixed_width(format!("##c{c}"), TableColumnFlags::NONE, column_w);
+            }
+            for (i, (label, hint, value, flags)) in fields.into_iter().enumerate() {
+                ui.table_next_column();
+                edited[i] = field(ui, label, hint, value, flags);
+            }
         }
-        ui.table_next_row();
-        ui.table_next_column();
-        if field(ui, "ATIS", "e.g. C", &mut f.atis, upper) {
-            f.atis_auto = f.atis.trim().is_empty(); // typed by the pilot: stop tracking
-        }
-        ui.table_next_column();
-        field(ui, "Stand", "e.g. 512", &mut f.stand, upper);
+        (edited[4], edited[5], edited[6])
+    };
+    if trans_edited {
+        f.transition_level_auto = f.transition_level.trim().is_empty(); // typed by the pilot: stop tracking
+    }
+    if qnh_edited {
+        f.qnh_auto = f.qnh.trim().is_empty(); // typed by the pilot: stop tracking
+    }
+    if atis_edited {
+        f.atis_auto = f.atis.trim().is_empty(); // typed by the pilot: stop tracking
     }
 
     // A reminder only: setting the transponder stays a cockpit task for the pilot.
@@ -250,12 +260,6 @@ fn clearance(ui: &Ui, m: &mut Model) {
 
     atis_check(ui, m);
 
-    if let Some(khz) = sidetone_core::radio::parse_com_khz(m.settings.flight.departure_freq.trim()) {
-        ui.same_line();
-        ui.text_disabled("· Departure");
-        ui.same_line();
-        tune_buttons(ui, m, khz);
-    }
     if changed {
         m.actions.push(Action::SaveSettings);
     }
