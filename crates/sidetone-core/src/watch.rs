@@ -35,14 +35,14 @@ impl Watcher {
         notices
     }
 
-    /// METAR changes. Returns notices.
-    pub fn metars(&mut self, metars: &HashMap<String, String>) -> Vec<String> {
+    /// METAR changes, as (short notice, full METAR) pairs.
+    pub fn metars(&mut self, metars: &HashMap<String, String>) -> Vec<(String, String)> {
         let mut notices = Vec::new();
         for (icao, text) in metars {
             if let Some(old) = self.metars.insert(icao.clone(), text.clone())
                 && old != *text
             {
-                notices.push(format!("New METAR {text}"));
+                notices.push((format!("New METAR {icao}"), text.clone()));
             }
         }
         notices
@@ -89,17 +89,9 @@ pub fn detect_cid(feed: &DataFeed, callsign: &str, departure: Option<&str>, arri
     }
 }
 
-/// Departure/arrival: manual entries win, then an imported SimBrief plan, then your VATSIM
-/// flight plan (live or prefiled).
+/// Departure/arrival: from the imported SimBrief plan, else your VATSIM flight plan (live or
+/// prefiled).
 pub fn route(settings: &Settings, simbrief: Option<&Plan>, feed: Option<&DataFeed>) -> Route {
-    let manual = |s: &str| {
-        let s = s.trim().to_ascii_uppercase();
-        (!s.is_empty()).then_some(s)
-    };
-    let (dep, arr) = (manual(&settings.vatsim.departure), manual(&settings.vatsim.arrival));
-    if dep.is_some() || arr.is_some() {
-        return Route { departure: dep, arrival: arr, source: "manual" };
-    }
     if let Some(plan) = simbrief.filter(|p| !p.origin.is_empty() || !p.destination.is_empty()) {
         let non_empty = |s: &str| (!s.is_empty()).then(|| s.to_string());
         return Route { departure: non_empty(&plan.origin), arrival: non_empty(&plan.destination), source: "SimBrief" };
@@ -132,6 +124,7 @@ mod tests {
             rating: 1,
             text: vec![],
             atis_code: Some(code.into()),
+            qualifier: None,
         }
     }
 
@@ -180,16 +173,14 @@ mod tests {
     }
 
     #[test]
-    fn route_prefers_manual_then_flight_plan() {
+    fn route_prefers_simbrief_then_flight_plan() {
         let mut s = Settings::default();
         let feed: DataFeed = serde_json::from_str(r#"{"pilots":[{"cid":5,"callsign":"X","flight_plan":{"departure":"EGLL","arrival":"ENBR"}}]}"#).unwrap();
         assert_eq!(route(&s, None, Some(&feed)), Route::default());
         s.vatsim.cid = Some(5);
         assert_eq!(route(&s, None, Some(&feed)).arrival.as_deref(), Some("ENBR"));
         let plan = Plan { origin: "EGKK".into(), destination: "LFPG".into(), ..Default::default() };
-        assert_eq!(route(&s, Some(&plan), Some(&feed)).source, "SimBrief");
-        s.vatsim.departure = "lemd".into();
         let r = route(&s, Some(&plan), Some(&feed));
-        assert_eq!((r.departure.as_deref(), r.arrival, r.source), (Some("LEMD"), None, "manual"));
+        assert_eq!((r.departure.as_deref(), r.arrival.as_deref(), r.source), (Some("EGKK"), Some("LFPG"), "SimBrief"));
     }
 }

@@ -35,6 +35,18 @@ pub fn place_clamped(screen: Bounds, left: i32, top: i32, width: i32, height: i3
     Bounds { left, top, right: left + width, bottom: top - height }
 }
 
+/// The main window attached under the panel: same left edge and width, `gap` below it (room
+/// for the window's title bar), as tall as asked but never past the bottom of the screen.
+pub fn attached_below(panel: Bounds, height: i32, gap: i32, screen: Bounds) -> Bounds {
+    let top = panel.bottom - gap;
+    let room = top - screen.bottom - gap;
+    let height = height.min(room).max(MIN_ATTACHED_HEIGHT.min(room.max(0)));
+    Bounds { left: panel.left, top, right: panel.right, bottom: top - height }
+}
+
+/// Shortest the attached window gets when the panel sits low on the screen.
+const MIN_ATTACHED_HEIGHT: i32 = 200;
+
 /// Centres a window on the screen.
 pub fn centered(screen: Bounds, width: i32, height: i32) -> Bounds {
     let left = screen.left + (screen.width() - width) / 2;
@@ -66,6 +78,16 @@ mod tests {
         let b = place_clamped(SCREEN, -50, 10, 320, 64);
         assert_eq!(b.left, 0);
         assert_eq!(b.bottom, 0);
+    }
+
+    #[test]
+    fn attaches_under_the_panel() {
+        let panel = Bounds { left: 12, top: 1040, right: 452, bottom: 956 };
+        let b = attached_below(panel, 600, 30, SCREEN);
+        assert_eq!(b, Bounds { left: 12, top: 926, right: 452, bottom: 326 });
+        // Not past the bottom of the screen.
+        let low = attached_below(panel, 5000, 30, SCREEN);
+        assert_eq!(low.bottom, 30);
     }
 
     #[test]

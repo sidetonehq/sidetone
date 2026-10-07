@@ -72,6 +72,8 @@ pub struct Prefile {
     pub cid: u32,
     pub callsign: String,
     pub flight_plan: Option<FlightPlan>,
+    /// When it was filed or last amended (ISO 8601).
+    pub last_updated: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -92,13 +94,18 @@ pub struct Transceiver {
 }
 
 impl DataFeed {
-    /// The flight plan for `cid`: from the live connection, else a prefile.
+    /// The flight plan for `cid`: the live connection's, else the most recently filed prefile.
+    /// A member can have several prefiles at once (one per callsign, until they expire), and
+    /// the newest is the flight they're about to fly.
     pub fn flight_plan_for(&self, cid: u32) -> Option<&FlightPlan> {
-        self.pilots
-            .iter()
-            .find(|p| p.cid == cid)
-            .and_then(|p| p.flight_plan.as_ref())
-            .or_else(|| self.prefiles.iter().find(|p| p.cid == cid).and_then(|p| p.flight_plan.as_ref()))
+        let live = self.pilots.iter().find(|p| p.cid == cid).and_then(|p| p.flight_plan.as_ref());
+        live.or_else(|| {
+            self.prefiles
+                .iter()
+                .filter(|p| p.cid == cid && p.flight_plan.is_some())
+                .max_by_key(|p| crate::time::parse_iso8601(&p.last_updated).unwrap_or(i64::MIN))
+                .and_then(|p| p.flight_plan.as_ref())
+        })
     }
 }
 
@@ -113,6 +120,19 @@ mod tests {
         assert_eq!(feed.atis[0].atis_code.as_deref(), Some("C"));
         assert_eq!(feed.flight_plan_for(1234567).unwrap().arrival, "ENBR");
         assert_eq!(feed.flight_plan_for(7654321).unwrap().departure, "EGLL");
+    }
+
+    #[test]
+    fn latest_prefile_wins() {
+        let feed: DataFeed = serde_json::from_str(
+            r#"{"prefiles":[
+                {"cid":5,"callsign":"VIR324","last_updated":"2026-10-06T20:45:43.5383586Z","flight_plan":{"departure":"LFPO","arrival":"LIRF"}},
+                {"cid":5,"callsign":"VIR434","last_updated":"2026-10-06T21:27:03.0980449Z","flight_plan":{"departure":"EGGD","arrival":"EDDC"}},
+                {"cid":5,"callsign":"VIR325","last_updated":"2026-10-06T20:48:14.7351191Z","flight_plan":{"departure":"LFPO","arrival":"LIRF"}}
+            ]}"#,
+        )
+        .unwrap();
+        assert_eq!(feed.flight_plan_for(5).unwrap().arrival, "EDDC", "the newest prefile, wherever it sits in the feed");
     }
 
     #[test]

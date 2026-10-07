@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>A native VATSIM pilot client that lives inside X-Plane 12.</strong><br>
-  Know who to call, what to say and what you were told, without leaving the cockpit.
+  Know who to call, who's on your route and what you were told, without leaving the cockpit.
 </p>
 
 <p align="center">
@@ -25,11 +25,12 @@
 ## Why Sidetone
 
 - **Lives in the sim.** No second app, no alt-tabbing. A small panel sits in the corner and the
-  full window is one click away, docked, popped out or in VR.
+  full window is one click away: docked, popped out, in VR, or attached under the panel as a
+  narrow sidebar. Every screen adapts to a narrow window.
 - **Talks like ATC.** Frequencies become spoken station names ("Gatwick Ground", "Schiphol
   Approach"), so you know who you'll hear before you tune.
 - **Knows your flight.** Import SimBrief and Sidetone follows your airports and route: ATIS,
-  METARs, who's staffed along the way, and a ready-to-say clearance request.
+  METARs, who's staffed along the way, and who to call for your clearance.
 - **Costs you no frames.** All network work runs on background threads; the UI redraws from a
   cache when you're not touching it. Settings shows the measured cost per frame.
 
@@ -50,17 +51,32 @@ while you transmit. Translucent until you hover it; drag it anywhere.
   <img src="docs/images/in-cockpit.jpg" alt="The Sidetone panel in the top-left corner of an Airbus cockpit, everything else left clear">
 </p>
 
-### Flight: who to call, and what's ahead
+### Flight: the whole flight on one page
 
 <img src="docs/images/flight.png" width="480" align="right" alt="The Flight tab: Gatwick and Schiphol with ATIS letters and METARs, and ATC along the route with Gatwick Ground and Schiphol Approach online and three unstaffed areas offering Switch to UNICOM">
 
-- **Your airports**: ATIS letters (split arrival/departure ATIS too), METARs and event badges,
-  with a notice when either changes.
-- **ATC along your route**: every area you'll cross, who's staffed, one-click tuning, and
-  "Switch to UNICOM" where nobody is.
-- **Who covers you** right now, with the frequency one click away.
-- **Get set up**: on first run, a checklist (CID, push-to-talk test, SimBrief, Hoppie, xPilot)
+**Import flight** (top right, on every tab) pulls in your latest SimBrief plan and starts a new
+flight. Everything else follows from it, in cards you can fold away:
+
+- **Get set up**: on first run, a checklist (CID, push-to-talk test, SimBrief, xPilot)
   that ticks itself off as you go.
+- **Who to call** right now, with the frequency one click away.
+- **Flight**: departure and arrival at a glance (ATIS letter and QNH, with the full ATIS and
+  METAR on hover, click to keep them open, and event badges), then the full route as filed on
+  VATSIM, with Copy and a warning if it differs from SimBrief.
+- **Clearance**: until you're cleared, who to call, one click from your radio. Then your
+  clearance as tiles in the order ATC reads it (SID, initial level, squawk, then runway, QNH,
+  ATIS, transition level and stand), each always in the same place. The squawk gets a green
+  tick once your transponder matches and the ATIS letter one while it's current; otherwise the
+  value turns amber with a warning. **Enter clearance** opens a popup with your route alongside
+  the fields, so the SID is in view as you note it. Folds itself away at takeoff.
+- **ATC along route**: who's staffed along the way, with one-click tuning, and a count of how
+  many areas are. When nobody covers where you are, "Switch to UNICOM".
+- **Arrival**: STAR, approach and the frequency you're told to call (one click from your
+  radio), then runway, QNH, ATIS and transition level in the same places as on the clearance.
+  The ATIS letter, QNH and transition level are kept current. Opens itself at takeoff as the
+  clearance folds away.
+- **Notes** for the taxi route and anything else, kept until you import your next flight.
 
 <br clear="right">
 
@@ -75,25 +91,24 @@ smoothly as a screenful.
 
 <br clear="right">
 
-### Clearance and CPDLC
-
-- **Request clearance**: who to call, your stand, and the words to say, e.g. *"Gatwick
-  Ground, VIR243, A339, stand 560, information Echo, request clearance to Schiphol."*
-- **Your clearance**: squawk, initial altitude, SID, runway, transition level, QNH, ATIS and
-  stand, filled in from PDC/CPDLC clearances, SimBrief, VATSIM and METARs, and kept current.
-  Anything you type wins.
-- **Flight plan**: your SimBrief plan and the route as filed on VATSIM, with a warning if they
-  differ.
-- **CPDLC & PDC** via Hoppie ACARS: logon, handovers, WILCO/UNABLE/STANDBY and requests.
-
 ### And
 
+- **Clearance fields fill themselves**: runway and SID from SimBrief, your assigned squawk from
+  VATSIM, the ATIS letter and transition level from the ATIS, and QNH from the METAR, kept
+  current as they change. Anything you type wins.
+- **Messages**: a message log with dot commands that work today (`.com1 122.8`, `.x 7000`,
+  `.metar EGLL`, `.clear`).
+- **CPDLC and PDC** stay with your aircraft: many study-level aircraft connect to Hoppie ACARS
+  themselves.
 - **SimBrief import** that starts a new flight, **VATSIM events** at your airports, and your
   pilot and ATC hours.
 - Your **VATSIM CID is found automatically** from your live callsign or SimBrief plan.
 - **xPilot companion mode** (optional): until Sidetone connects natively, show xPilot's
-  connection in the panel, light up receive indicators and share one push-to-talk key.
+  connection in the panel, light up receive indicators, surface SELCAL calls and share one
+  push-to-talk key.
   Read-only towards the network.
+- **Settings** for UI scale, panel opacity, ATIS and METAR change notices, and push-to-talk on
+  X-Plane's own "Contact ATC" key or a dedicated bindable command.
 - **Keyboard-friendly**: Sidetone only holds the keyboard while you type in a field (Cmd+C/V/X/A/Z
   supported) and hands it back on Enter, Escape or when you move away, keeping what you typed.
 
@@ -104,8 +119,8 @@ smoothly as a screenful.
 3. Start X-Plane and click the panel to get started.
 
 Builds are not yet notarized, so macOS may ask you to allow the plugin the first time (System
-Settings → Privacy & Security → Allow Anyway). SimBrief and Hoppie are optional; their IDs are
-stored in your macOS Keychain.
+Settings → Privacy & Security → Allow Anyway). SimBrief is optional; your Pilot ID is stored in
+your macOS Keychain.
 
 > **Coming soon:** Windows support for X-Plane 12, and a version for Microsoft Flight
 > Simulator. Sidetone's core, VATSIM data and services code is already simulator- and
@@ -122,10 +137,11 @@ cargo xtask bundle              # dist/Sidetone/mac_x64/Sidetone.xpl
 cargo xtask install             # bundle + copy into ~/X-Plane 12 (or --xplane <path>)
 ```
 
-Releases are built by CI: pushing a tag like `v0.1.0` publishes a universal zip.
+Releases are built by CI: pushing a tag like `v0.1.0` publishes a universal zip. See
+[Releasing](docs/RELEASING.md).
 
 Logs: `X-Plane 12/Output/Sidetone/Sidetone.log`. Settings: `Output/preferences/Sidetone.toml`.
-Secrets (Hoppie logon code, SimBrief Pilot ID) live in the macOS Keychain.
+Secrets (your SimBrief Pilot ID) live in the macOS Keychain.
 
 ## Layout
 
@@ -135,7 +151,7 @@ Secrets (Hoppie logon code, SimBrief Pilot ID) live in the macOS Keychain.
 | `sidetone-ui` | Dear ImGui hosted in X-Plane windows (legacy-GL renderer, input, theme) |
 | `sidetone-core` | State, settings, alerts, clearance parsing — no X-Plane dependency |
 | `sidetone-vatsim` | VATSIM data feed, station naming, coverage, events |
-| `sidetone-services` | SimBrief, Hoppie CPDLC, Keychain |
+| `sidetone-services` | SimBrief, Keychain |
 | `sidetone-plugin` | The plugin: wiring and screens |
 
 ## Documentation
@@ -148,5 +164,5 @@ Secrets (Hoppie logon code, SimBrief Pilot ID) live in the macOS Keychain.
 
 Sidetone is Apache-2.0. Station names and sectors use the
 [VATSpy data project](https://github.com/vatsimnetwork/vatspy-data-project) (CC BY-SA 4.0),
-downloaded at runtime. The Inter font is SIL OFL 1.1. The X-Plane SDK is © Laminar Research
+downloaded at runtime. The Inter font is SIL OFL 1.1 and the Lucide icons are ISC. The X-Plane SDK is © Laminar Research
 under its own permissive licence.

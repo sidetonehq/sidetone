@@ -4,18 +4,20 @@ const SERVICE: &str = "Sidetone";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Secret {
-    HoppieLogon,
     SimbriefUsername,
 }
 
 impl Secret {
     fn account(self) -> &'static str {
         match self {
-            Secret::HoppieLogon => "hoppie-logon-code",
             Secret::SimbriefUsername => "simbrief-username",
         }
     }
 }
+
+/// Accounts from removed features (the Hoppie CPDLC logon code), deleted on startup so nothing
+/// Sidetone no longer uses stays in the Keychain.
+const RETIRED_ACCOUNTS: [&str; 1] = ["hoppie-logon-code"];
 
 #[cfg(target_os = "macos")]
 pub fn get(secret: Secret) -> Option<String> {
@@ -32,6 +34,13 @@ pub fn delete(secret: Secret) {
     let _ = security_framework::passwords::delete_generic_password(SERVICE, secret.account());
 }
 
+#[cfg(target_os = "macos")]
+pub fn delete_retired() {
+    for account in RETIRED_ACCOUNTS {
+        let _ = security_framework::passwords::delete_generic_password(SERVICE, account);
+    }
+}
+
 #[cfg(not(target_os = "macos"))]
 pub fn get(_secret: Secret) -> Option<String> {
     None
@@ -44,3 +53,8 @@ pub fn set(_secret: Secret, _value: &str) -> Result<(), String> {
 
 #[cfg(not(target_os = "macos"))]
 pub fn delete(_secret: Secret) {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn delete_retired() {
+    let _ = RETIRED_ACCOUNTS;
+}

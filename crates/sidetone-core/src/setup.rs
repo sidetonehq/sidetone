@@ -6,14 +6,13 @@ pub enum Step {
     Cid,
     PushToTalk,
     Simbrief,
-    Hoppie,
     Xpilot,
 }
 
 impl Step {
     /// Optional steps never hold up "ready to fly".
     pub fn optional(self) -> bool {
-        matches!(self, Step::Simbrief | Step::Hoppie | Step::Xpilot)
+        matches!(self, Step::Simbrief | Step::Xpilot)
     }
 }
 
@@ -23,7 +22,6 @@ pub struct Progress {
     pub cid: bool,
     pub ptt_tested: bool,
     pub simbrief: bool,
-    pub hoppie: bool,
     /// The xPilot plugin is installed; its step only appears then.
     pub xpilot_found: bool,
     pub xpilot_on: bool,
@@ -37,12 +35,8 @@ pub struct Item {
 
 /// Essentials first, then optional extras.
 pub fn checklist(p: &Progress) -> Vec<Item> {
-    let mut items = vec![
-        Item { step: Step::Cid, done: p.cid },
-        Item { step: Step::PushToTalk, done: p.ptt_tested },
-        Item { step: Step::Simbrief, done: p.simbrief },
-        Item { step: Step::Hoppie, done: p.hoppie },
-    ];
+    let mut items =
+        vec![Item { step: Step::Cid, done: p.cid }, Item { step: Step::PushToTalk, done: p.ptt_tested }, Item { step: Step::Simbrief, done: p.simbrief }];
     if p.xpilot_found {
         items.push(Item { step: Step::Xpilot, done: p.xpilot_on });
     }

@@ -80,19 +80,40 @@ fn densify(points: &[LatLon], step_nm: f64) -> Vec<LatLon> {
     out
 }
 
-/// Online airport stations in the order a pilot contacts them, without duplicates.
-fn online_at_airport(icao: &str, stations: &[Station], order: &[Facility]) -> Vec<(String, String, i32)> {
-    let mut found: Vec<&Station> = stations.iter().filter(|s| order.contains(&s.facility) && s.callsign.split('_').next() == Some(icao)).collect();
+/// An airport's row on the route: its own units in contact order, and, when it has no approach
+/// or departure unit of its own online, the approach units whose area covers it (nearest
+/// first). That's who works its traffic top-down, and who the "first call" hint suggests.
+fn airport_leg(icao: &str, stations: &[Station], vatspy: &VatSpy, order: &[Facility]) -> Vec<(String, String, i32)> {
+    let terminal = |s: &Station| matches!(s.facility, Facility::Approach | Facility::Departure);
+    let own = |s: &Station| s.callsign.split('_').next() == Some(icao);
+    let mut found: Vec<&Station> = stations.iter().filter(|s| order.contains(&s.facility) && own(s)).collect();
     found.sort_by_key(|s| (order.iter().position(|f| *f == s.facility), s.frequency_khz));
+    if !found.iter().any(|s| terminal(s))
+        && let Some(here) = vatspy.airport(icao).map(|a| a.position)
+    {
+        let mut nearby: Vec<(&Station, f64)> = stations
+            .iter()
+            .filter(|s| terminal(s) && !own(s))
+            .filter_map(|s| {
+                let at = vatspy.airport(s.callsign.split('_').next()?)?;
+                let d = distance_nm(here, at.position);
+                (d <= terminal_radius(s.facility)?).then_some((s, d))
+            })
+            .collect();
+        nearby.sort_by(|a, b| a.1.total_cmp(&b.1));
+        found.extend(nearby.into_iter().map(|(s, _)| s));
+    }
     dedupe(found)
 }
 
-/// One entry per (spoken name, frequency): split positions on one frequency show once.
+/// One entry per (name, frequency): split positions on one frequency show once. Names carry
+/// their place when ambiguous ("Langen Radar · Dusseldorf APP").
 fn dedupe(stations: Vec<&Station>) -> Vec<(String, String, i32)> {
     let mut out: Vec<(String, String, i32)> = Vec::new();
     for s in stations {
-        if !out.iter().any(|(_, name, khz)| *name == s.name && *khz == s.frequency_khz) {
-            out.push((s.callsign.clone(), s.name.clone(), s.frequency_khz));
+        let name = s.display_name();
+        if !out.iter().any(|(_, n, khz)| *n == name && *khz == s.frequency_khz) {
+            out.push((s.callsign.clone(), name, s.frequency_khz));
         }
     }
     out
@@ -122,7 +143,7 @@ pub fn along_route(
 ) -> Vec<RouteLeg> {
     let mut legs = Vec::new();
     if let Some(dep) = departure {
-        legs.push(RouteLeg { id: dep.to_string(), label: format!("{dep} departure"), online: online_at_airport(dep, stations, &DEPARTURE_ORDER) });
+        legs.push(RouteLeg { id: dep.to_string(), label: format!("{dep} departure"), online: airport_leg(dep, stations, vatspy, &DEPARTURE_ORDER) });
     }
 
     // Walk the route, grouping consecutive points by FIR and remembering every sector crossed.
@@ -163,7 +184,7 @@ pub fn along_route(
     }
 
     if let Some(arr) = arrival {
-        legs.push(RouteLeg { id: arr.to_string(), label: format!("{arr} arrival"), online: online_at_airport(arr, stations, &ARRIVAL_ORDER) });
+        legs.push(RouteLeg { id: arr.to_string(), label: format!("{arr} arrival"), online: airport_leg(arr, stations, vatspy, &ARRIVAL_ORDER) });
     }
     legs
 }
@@ -207,6 +228,7 @@ mod tests {
             rating: 0,
             text: vec![],
             atis_code: None,
+            qualifier: None,
         }
     }
 
@@ -218,10 +240,27 @@ mod tests {
             station("EHAM_DEL", "Schiphol Delivery", 121_980),
             station("EHAM_S_DEL", "Schiphol Delivery", 121_980),
         ];
-        let names: Vec<_> = online_at_airport("EHAM", &s, &DEPARTURE_ORDER).into_iter().map(|o| o.1).collect();
+        let spy = VatSpy::parse(crate::vatspy::SAMPLE);
+        let names: Vec<_> = airport_leg("EHAM", &s, &spy, &DEPARTURE_ORDER).into_iter().map(|o| o.1).collect();
         assert_eq!(names, vec!["Schiphol Delivery", "Schiphol Tower", "Schiphol Approach"]);
-        let arr: Vec<_> = online_at_airport("EHAM", &s, &ARRIVAL_ORDER).into_iter().map(|o| o.1).collect();
+        let arr: Vec<_> = airport_leg("EHAM", &s, &spy, &ARRIVAL_ORDER).into_iter().map(|o| o.1).collect();
         assert_eq!(arr, vec!["Schiphol Approach", "Schiphol Tower"]);
+    }
+
+    #[test]
+    fn nearby_approach_covers_an_airport_without_its_own() {
+        let spy = VatSpy::parse(crate::vatspy::SAMPLE);
+        let s = vec![station("EGLL_APP", "Heathrow Approach", 119_730), station("EGKK_TWR", "Gatwick Tower", 124_225)];
+        // Gatwick has a tower but no approach: Heathrow's, 22 nm away, works its departures.
+        let names: Vec<_> = airport_leg("EGKK", &s, &spy, &DEPARTURE_ORDER).into_iter().map(|o| o.1).collect();
+        assert_eq!(names, vec!["Gatwick Tower", "Heathrow Approach"]);
+        // An airport with its own approach online doesn't borrow a neighbour's.
+        let with_own = vec![station("EGLL_APP", "Heathrow Approach", 119_730), station("EGKK_APP", "Gatwick Director", 126_825)];
+        let names: Vec<_> = airport_leg("EGKK", &with_own, &spy, &DEPARTURE_ORDER).into_iter().map(|o| o.1).collect();
+        assert_eq!(names, vec!["Gatwick Director"]);
+        // Too far to cover: Frankfurt's approach doesn't work Heathrow.
+        let far = vec![station("EDDF_APP", "Langen Radar", 120_805)];
+        assert!(airport_leg("EGLL", &far, &spy, &DEPARTURE_ORDER).is_empty());
     }
 
     #[test]

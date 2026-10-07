@@ -96,7 +96,11 @@ pub fn build(frame: &mut HostFrame, m: &mut Model) {
             }
             Some(CoverageHint::Tune { name, khz }) => (format!("{name} {} covers you · click for more", format_com_khz(*khz)), theme::ACCENT),
             Some(CoverageHint::Unicom) => ("No ATC overhead · monitor UNICOM 122.800".to_string(), theme::WARN),
-            None => ("No new messages".to_string(), theme::TEXT_DIM),
+            // Nothing to act on: show the flight instead of filler.
+            None => match (&m.state.route.departure, &m.state.route.arrival) {
+                (Some(dep), Some(arr)) => (format!("{dep} → {arr}"), theme::TEXT_DIM),
+                _ => (String::new(), theme::TEXT_DIM),
+            },
         }
     };
     draw.add_text([left, rows[2]], fade(ticker.1), elide(ui, &ticker.0, right - left));

@@ -51,9 +51,8 @@ suggests UNICOM when no controller covers the aircraft.
 
 ## Third-party services
 
-- **Hoppie ACARS** (CPDLC and pre-departure clearances) is a separate network. Sidetone follows
-  Hoppie's polling etiquette (no polling before the first message, then 45–75 s, briefly 20 s
-  after sending).
+- **Hoppie ACARS** (CPDLC and pre-departure clearances) is left to the pilot's aircraft; Sidetone
+  doesn't connect to it.
 - **SimBrief** is used only to import the pilot's own latest flight plan.
 
 ## Contact

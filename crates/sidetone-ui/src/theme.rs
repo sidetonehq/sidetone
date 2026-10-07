@@ -1,6 +1,6 @@
 //! Sidetone's look: dark glass panels, rounded corners, one teal accent.
 
-use dear_imgui_rs::{Context, DrawListMut, DrawSegmentCount, FontId, FontSource, PolylineFlags, StbTrueTypeFontData, Style, StyleColor, Ui};
+use dear_imgui_rs::{Context, DrawListMut, DrawSegmentCount, FontConfig, FontId, FontSource, PolylineFlags, StbTrueTypeFontData, Style, StyleColor, Ui};
 
 pub const ACCENT: [f32; 4] = [0.20, 0.78, 0.72, 1.0];
 pub const TEXT: [f32; 4] = [0.93, 0.95, 0.97, 1.0];
@@ -10,9 +10,51 @@ pub const WARN: [f32; 4] = [0.98, 0.74, 0.27, 1.0];
 pub const DANGER: [f32; 4] = [0.96, 0.36, 0.36, 1.0];
 pub const SURFACE: [f32; 4] = [0.07, 0.09, 0.11, 1.0];
 pub const SURFACE_RAISED: [f32; 4] = [0.12, 0.15, 0.18, 1.0];
+/// A card (one section of a tab), a step above the window background.
+pub const SURFACE_CARD: [f32; 4] = [0.095, 0.115, 0.14, 1.0];
+/// Buttons and fields: a step above a card, so they read on it.
+const CONTROL: [f32; 4] = [0.15, 0.185, 0.22, 1.0];
+
+/// Station types, kept apart from the status colours above so amber and red only ever mean
+/// "act on this". Soft and distinct, in contact order from the outside in.
+pub mod facility {
+    pub const CENTER: [f32; 4] = [0.49, 0.62, 0.96, 1.0];
+    pub const APPROACH: [f32; 4] = [0.70, 0.56, 0.95, 1.0];
+    pub const TOWER: [f32; 4] = [0.94, 0.56, 0.47, 1.0];
+    pub const GROUND: [f32; 4] = [0.84, 0.74, 0.55, 1.0];
+    pub const ATIS: [f32; 4] = [0.45, 0.80, 0.80, 1.0];
+}
+
+/// Lucide icons (ISC licence, assets/fonts/Lucide-LICENSE.txt), merged into both fonts. Only
+/// these glyphs are bundled (Lucide-Subset.ttf); add a codepoint there before using a new one.
+pub mod icon {
+    pub const COPY: &str = "\u{e09e}";
+    pub const DOWNLOAD: &str = "\u{e0b2}";
+    pub const EXTERNAL: &str = "\u{e0b9}";
+    pub const DOCK: &str = "\u{e11b}";
+    pub const EDIT: &str = "\u{e1f9}";
+    pub const LIST: &str = "\u{e106}";
+    pub const ALERT: &str = "\u{e193}";
+    pub const CHECK: &str = "\u{e226}";
+    pub const CLOSE: &str = "\u{e1b2}";
+}
 
 /// Base font size in boxels before Retina scaling.
 pub const FONT_SIZE: f32 = 14.0;
+
+/// Icon size, relative to the text it's merged into (scales with it). Lucide glyphs fill
+/// nearly their whole box while Inter's capitals are 60% of its, so this draws an icon about
+/// 1.15× the capital height.
+const ICON_SIZE: f32 = 10.5;
+
+/// Inter's capital height as a share of its pixel size (cap height 1490 over ascent + descent
+/// 2478 font units), for centring icons on capitals.
+const INTER_CAP_SHARE: f32 = 1490.0 / 2478.0;
+
+/// How far down to move icons so their centre sits on the capitals' centre. Both glyph boxes hang
+/// from the same baseline: Lucide's icons are centred in a box ICON_SIZE tall, Inter's capitals
+/// fill FONT_SIZE × INTER_CAP_SHARE above the baseline, so the gap is half the difference.
+const ICON_OFFSET_Y: f32 = (ICON_SIZE - FONT_SIZE * INTER_CAP_SHARE) / 2.0;
 
 fn with_alpha(c: [f32; 4], a: f32) -> [f32; 4] {
     [c[0], c[1], c[2], a]
@@ -41,13 +83,13 @@ pub fn apply(context: &mut Context, pristine: &Style, scale: f32) {
         (StyleColor::Text, TEXT),
         (StyleColor::TextDisabled, TEXT_DIM),
         (StyleColor::WindowBg, SURFACE),
-        (StyleColor::ChildBg, with_alpha(SURFACE_RAISED, 0.6)),
+        (StyleColor::ChildBg, SURFACE_CARD),
         (StyleColor::PopupBg, SURFACE_RAISED),
         (StyleColor::Border, [1.0, 1.0, 1.0, 0.08]),
-        (StyleColor::FrameBg, SURFACE_RAISED),
-        (StyleColor::FrameBgHovered, [0.16, 0.20, 0.24, 1.0]),
-        (StyleColor::FrameBgActive, [0.19, 0.24, 0.29, 1.0]),
-        (StyleColor::Button, SURFACE_RAISED),
+        (StyleColor::FrameBg, CONTROL),
+        (StyleColor::FrameBgHovered, [0.18, 0.22, 0.26, 1.0]),
+        (StyleColor::FrameBgActive, [0.21, 0.26, 0.31, 1.0]),
+        (StyleColor::Button, CONTROL),
         (StyleColor::ButtonHovered, with_alpha(ACCENT, 0.35)),
         (StyleColor::ButtonActive, with_alpha(ACCENT, 0.55)),
         (StyleColor::Header, with_alpha(ACCENT, 0.18)),
@@ -76,6 +118,7 @@ pub fn apply(context: &mut Context, pristine: &Style, scale: f32) {
 /// Inter (SIL Open Font License 1.1, see assets/fonts/Inter-LICENSE.txt), embedded in the plugin.
 const INTER_REGULAR: &[u8] = include_bytes!("../assets/fonts/Inter-Regular.ttf");
 const INTER_SEMIBOLD: &[u8] = include_bytes!("../assets/fonts/Inter-SemiBold.ttf");
+const LUCIDE: &[u8] = include_bytes!("../assets/fonts/Lucide-Subset.ttf");
 
 /// Fonts available to UI code. The first one added is ImGui's default.
 #[derive(Clone, Copy, Debug)]
@@ -87,7 +130,23 @@ pub struct Fonts {
 fn add(context: &Context, bytes: &[u8]) -> FontId {
     let atlas = context.font_atlas();
     match StbTrueTypeFontData::from_slice(bytes) {
-        Ok(data) => atlas.add_font(&[FontSource::stb_truetype_with_size(data, FONT_SIZE)]),
+        Ok(data) => {
+            // Inter keeps alternate glyphs in the Private Use Area (U+E09E is a case minus), which
+            // would win over the merged icons; leave that range to Lucide.
+            let text = FontSource::stb_truetype_with_size(data, FONT_SIZE).with_config(FontConfig::new().glyph_exclude_ranges(&[(0xE000, 0xF8FF)]));
+            match StbTrueTypeFontData::from_slice(LUCIDE) {
+                // Icons a little taller than the capitals and centred on them, with a fixed
+                // width so they line up.
+                Ok(icons) => {
+                    let config = FontConfig::new().merge_mode(true).glyph_offset([0.0, ICON_OFFSET_Y]).glyph_min_advance_x(ICON_SIZE + 1.0);
+                    atlas.add_font(&[text, FontSource::stb_truetype_with_size(icons, ICON_SIZE).with_config(config)])
+                }
+                Err(e) => {
+                    log::warn!("Bundled icon font rejected ({e}); icons won't show");
+                    atlas.add_font(&[text])
+                }
+            }
+        }
         Err(e) => {
             log::warn!("Bundled font rejected ({e}); using ImGui default");
             atlas.add_font(&[FontSource::default_font_with_size(FONT_SIZE)])
@@ -95,7 +154,7 @@ fn add(context: &Context, bytes: &[u8]) -> FontId {
     }
 }
 
-/// Loads the bundled Inter fonts.
+/// Loads the bundled Inter fonts, each with the Lucide icons merged in.
 pub fn load_fonts(context: &Context) -> Fonts {
     let regular = add(context, INTER_REGULAR);
     let semibold = add(context, INTER_SEMIBOLD);

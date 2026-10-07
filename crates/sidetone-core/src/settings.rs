@@ -1,5 +1,5 @@
 //! User settings, persisted as TOML in X-Plane's `Output/preferences/Sidetone.toml`.
-//! Secrets (passwords, Hoppie logon code) never go here — they live in the macOS Keychain.
+//! Secrets (the SimBrief Pilot ID) never go here — they live in the macOS Keychain.
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -44,9 +44,6 @@ pub struct Integrations {
 pub struct VatsimSettings {
     /// Your VATSIM CID: finds your flight plan in the feed and your stats.
     pub cid: Option<u32>,
-    /// Manual departure/arrival; empty = use your VATSIM flight plan.
-    pub departure: String,
-    pub arrival: String,
     /// Post ATIS letter / METAR changes for your airports to the panel.
     pub weather_alerts: bool,
 }
@@ -66,6 +63,8 @@ pub struct PanelSettings {
 pub struct WindowSettings {
     pub position: Option<(i32, i32)>,
     pub size: (i32, i32),
+    /// Keep the window directly under the panel, at the panel's width (a sidebar).
+    pub attach_to_panel: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -89,13 +88,13 @@ impl Default for PanelSettings {
 
 impl Default for WindowSettings {
     fn default() -> Self {
-        WindowSettings { position: None, size: (720, 500) }
+        WindowSettings { position: None, size: (720, 500), attach_to_panel: false }
     }
 }
 
 impl Default for VatsimSettings {
     fn default() -> Self {
-        VatsimSettings { cid: None, departure: String::new(), arrival: String::new(), weather_alerts: true }
+        VatsimSettings { cid: None, weather_alerts: true }
     }
 }
 
@@ -110,6 +109,9 @@ impl Default for UiSettings {
         UiSettings { font_scale: 1.0 }
     }
 }
+
+/// Narrow enough to sit under the panel (440 at the smallest UI scale is 330).
+pub const MIN_WINDOW_WIDTH: i32 = 320;
 
 impl Settings {
     /// Loads settings, falling back to defaults (and logging why) if the file is missing or invalid.
@@ -141,7 +143,7 @@ impl Settings {
     fn sanitized(mut self) -> Settings {
         self.panel.idle_opacity = self.panel.idle_opacity.clamp(0.2, 1.0);
         self.ui.font_scale = self.ui.font_scale.clamp(0.75, 2.0);
-        self.main_window.size.0 = self.main_window.size.0.max(400);
+        self.main_window.size.0 = self.main_window.size.0.max(MIN_WINDOW_WIDTH);
         self.main_window.size.1 = self.main_window.size.1.max(260);
         self
     }

@@ -30,5 +30,5 @@ body:
     id: log
     attributes:
       label: Sidetone.log
-      description: Attach or paste `X-Plane 12/Output/Sidetone/Sidetone.log`. It never contains passwords or your Hoppie code.
+      description: Attach or paste `X-Plane 12/Output/Sidetone/Sidetone.log`. It never contains passwords or your SimBrief Pilot ID.
       render: text
