@@ -80,18 +80,16 @@ fn stations(ui: &Ui, m: &mut Model) {
     // Rows show their COM buttons only under the mouse; elsewhere a tag marks what you're tuned to.
     let (table_left, table_right) = (ui.cursor_screen_pos()[0], ui.cursor_screen_pos()[0] + ui.content_region_avail()[0]);
     let flags = TableFlags::ROW_BG | TableFlags::BORDERS_INNER_H | TableFlags::SCROLL_Y;
-    // Narrow windows drop Callsign and Dist; the callsign is in each row's hover details.
+    // Narrow windows drop Callsign (it's in each row's hover details) but keep Dist.
     let narrow = super::narrow(ui);
-    let (id, columns) = if narrow { ("stations_narrow", 3) } else { ("stations", 5) };
+    let (id, columns) = if narrow { ("stations_narrow", 4) } else { ("stations", 5) };
     let Some(_table) = ui.begin_table_with_flags(id, columns, flags) else { return };
     ui.table_setup_column_stretch_weight("Station", TableColumnFlags::NONE, 1.0);
     if !narrow {
         ui.table_setup_column_fixed_width("Callsign", TableColumnFlags::NONE, 110.0 * unit);
     }
     ui.table_setup_column_fixed_width("Freq", TableColumnFlags::NONE, 62.0 * unit);
-    if !narrow {
-        ui.table_setup_column_fixed_width("Dist", TableColumnFlags::NONE, 54.0 * unit);
-    }
+    ui.table_setup_column_fixed_width("Dist", TableColumnFlags::NONE, 54.0 * unit);
     // Sized from the real button widths so both COM buttons always fit at any UI scale.
     let style = ui.clone_style();
     let button = |label: &str| super::pill_width(ui, label);
@@ -113,7 +111,9 @@ fn stations(ui: &Ui, m: &mut Model) {
         let row_height = ui.text_line_height() + style.cell_padding()[1] * 2.0;
         // Compared directly: ImGui's hover test clips to the current cell, which misses the row.
         let [mx, my] = ui.io().mouse_pos();
-        let row_hovered = ui.is_window_hovered() && (table_left..table_right).contains(&mx) && (row_top..row_top + row_height).contains(&my);
+        // (Still hovered while a COM button is held down: it clicks on release, so it must still be there.)
+        let window_hovered = ui.is_window_hovered_with_flags(sidetone_ui::imgui::WindowHoveredFlags::ALLOW_WHEN_BLOCKED_BY_ACTIVE_ITEM);
+        let row_hovered = window_hovered && (table_left..table_right).contains(&mx) && (row_top..row_top + row_height).contains(&my);
         if row_hovered {
             ui.table_set_row_bg1_color([0.20, 0.78, 0.72, 0.10]);
         }
@@ -142,10 +142,8 @@ fn stations(ui: &Ui, m: &mut Model) {
         } else {
             ui.text(&freq);
         }
-        if !narrow {
-            ui.table_next_column();
-            ui.text_disabled(distance.map(|d| format!("{d:.0} nm")).unwrap_or_default());
-        }
+        ui.table_next_column();
+        ui.text_disabled(distance.map(|d| format!("{d:.0} nm")).unwrap_or_default());
         ui.table_next_column();
         let khz = station.frequency_khz;
         if row_hovered {

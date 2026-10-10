@@ -22,6 +22,9 @@ pub struct Sim {
     on_ground: Option<DataRef>,
     vr: Option<DataRef>,
     audio_com: Option<DataRef>,
+    /// A tune to check a few frames on: aircraft with their own radio panel overwrite the
+    /// active frequency, so then it's set as standby and swapped (com, kHz, frames left).
+    pending_tune: std::cell::Cell<Option<(Com, i32, u8)>>,
 }
 
 fn find(name: &str) -> Option<DataRef> {
@@ -49,6 +52,7 @@ impl Sim {
             elevation_m: find("sim/flightmodel/position/elevation"),
             on_ground: find("sim/flightmodel/failures/onground_any"),
             vr: find("sim/graphics/VR/enabled"),
+            pending_tune: std::cell::Cell::new(None),
             audio_com: find("sim/cockpit2/radios/actuators/audio_com_selection"),
         }
     }
@@ -56,6 +60,27 @@ impl Sim {
     /// Copies the current radio and transponder state into `state`.
     pub fn read(&self, state: &mut AppState) {
         let get = |r: &Option<DataRef>| r.map(|r| r.get_i32()).unwrap_or(0);
+        if let Some((com, khz, frames)) = self.pending_tune.get() {
+            let (active, standby, flip) = match com {
+                Com::One => (self.com1_active, self.com1_standby, "sim/radios/com1_standy_flip"),
+                Com::Two => (self.com2_active, self.com2_standby, "sim/radios/com2_standy_flip"),
+            };
+            if get(&active) == khz {
+                self.pending_tune.set(None);
+            } else if frames > 0 {
+                self.pending_tune.set(Some((com, khz, frames - 1)));
+            } else {
+                // The aircraft put its own frequency back: tune it the way its panel does.
+                log::info!("COM{} kept its frequency; tuning {khz} through standby and swap", if com == Com::One { 1 } else { 2 });
+                if let Some(r) = standby {
+                    r.set_i32(khz);
+                }
+                if let Some(c) = sidetone_xplm::command::Command::find(flip) {
+                    c.once();
+                }
+                self.pending_tune.set(None);
+            }
+        }
         let avionics = self.avionics.is_none() || get(&self.avionics) != 0;
         state.com1.active_khz = get(&self.com1_active);
         state.com1.standby_khz = get(&self.com1_standby);
@@ -86,6 +111,7 @@ impl Sim {
         if let Some(r) = target {
             r.set_i32(khz);
         }
+        self.pending_tune.set(Some((com, khz, 3)));
     }
 
     pub fn squawk(&self, code: i32) {

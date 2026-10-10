@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/hero.jpg" alt="Sidetone's panel and main window over an Airbus cockpit at FL270, showing your airports' ATIS and METARs and ATC along the route from Gatwick to Schiphol">
+  <img src="docs/images/hero.jpg" alt="Sidetone's panel with the main window attached under it as a sidebar, over an A330 cockpit at FL310: the clearance and arrival as tiles and ATC along the route from Frankfurt to Leipzig">
 </p>
 
 > **Status: pre-release.** Everything built on VATSIM's *public* data works today, alongside
@@ -53,7 +53,7 @@ while you transmit. Translucent until you hover it; drag it anywhere.
 
 ### Flight: the whole flight on one page
 
-<img src="docs/images/flight.png" width="480" align="right" alt="The Flight tab: Gatwick and Schiphol with ATIS letters and METARs, and ATC along the route with Gatwick Ground and Schiphol Approach online and three unstaffed areas offering Switch to UNICOM">
+<img src="docs/images/flight.png" width="480" align="right" alt="The Flight tab under the panel: the clearance as tiles (SID TOBA2D, 5000 ft, squawk 1000 with a green tick, runway 07C), ATC along the route with Frankfurt Tower and Leipzig Tower online and On UNICOM over Langen, the arrival at Leipzig, and taxi notes">
 
 **Import flight** (top right, on every tab) pulls in your latest SimBrief plan and starts a new
 flight. Everything else follows from it, in cards you can fold away:
@@ -61,9 +61,10 @@ flight. Everything else follows from it, in cards you can fold away:
 - **Get set up**: on first run, a checklist (CID, push-to-talk test, SimBrief, xPilot)
   that ticks itself off as you go.
 - **Who to call** right now, with the frequency one click away.
-- **Flight**: departure and arrival at a glance (ATIS letter and QNH, with the full ATIS and
+- **Flight**: departure and arrival at a glance (ATIS letter, with the full ATIS and
   METAR on hover, click to keep them open, and event badges), then the full route as filed on
-  VATSIM, with Copy and a warning if it differs from SimBrief.
+  VATSIM (with the SID and STAR from SimBrief when the filing leaves them out), its source and
+  alternate on hover, and a warning if it differs from SimBrief.
 - **Clearance**: until you're cleared, who to call, one click from your radio. Then your
   clearance as tiles in the order ATC reads it (SID, initial level, squawk, then runway, QNH,
   ATIS, transition level and stand), each always in the same place. The squawk gets a green
@@ -163,6 +164,11 @@ Secrets (your SimBrief Pilot ID) live in the macOS Keychain.
 ## Licences and credits
 
 Sidetone is Apache-2.0. Station names and sectors use the
-[VATSpy data project](https://github.com/vatsimnetwork/vatspy-data-project) (CC BY-SA 4.0),
-downloaded at runtime. The Inter font is SIL OFL 1.1 and the Lucide icons are ISC. The X-Plane SDK is © Laminar Research
+[VATSpy data project](https://github.com/vatsimnetwork/vatspy-data-project) (CC BY-SA 4.0), and
+approach and departure airspace the
+[SimAware TRACON Project](https://github.com/vatsimnetwork/simaware-tracon-project)
+(CC BY-SA 4.0), both downloaded at runtime. Which controller owns the airspace at your level
+comes from the [VATGlasses data project](https://github.com/lennycolton/vatglasses-data)
+(CC BY-NC-SA 4.0), downloaded at runtime for the areas you fly through and never bundled.
+The Inter font is SIL OFL 1.1 and the Lucide icons are ISC. The X-Plane SDK is © Laminar Research
 under its own permissive licence.

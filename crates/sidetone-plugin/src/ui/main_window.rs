@@ -45,7 +45,7 @@ pub fn build(frame: &mut HostFrame, m: &mut Model) {
         }
     }
     if ui.is_item_hovered() {
-        ui.tooltip_text("Import your latest SimBrief flight plan and start a new flight");
+        super::wrapped_tooltip(ui, "Import your latest SimBrief flight plan and start a new flight");
     }
     ui.same_line();
     ui.set_cursor_pos([button_x, ui.cursor_pos()[1]]);
@@ -53,7 +53,7 @@ pub fn build(frame: &mut HostFrame, m: &mut Model) {
         frame.set_popped_out(!frame.popped_out);
     }
     if ui.is_item_hovered() {
-        ui.tooltip_text(if frame.popped_out { "Dock back into X-Plane" } else { "Pop out into its own window" });
+        super::wrapped_tooltip(ui, if frame.popped_out { "Dock back into X-Plane" } else { "Pop out into its own window" });
     }
     if !frame.popped_out {
         ui.same_line();
@@ -61,7 +61,7 @@ pub fn build(frame: &mut HostFrame, m: &mut Model) {
             frame.close();
         }
         if ui.is_item_hovered() {
-            ui.tooltip_text("Close (the panel opens it again)");
+            super::wrapped_tooltip(ui, "Close (the panel opens it again)");
         }
     }
     ui.separator();
@@ -338,7 +338,9 @@ fn settings(ui: &Ui, fonts: Fonts, m: &mut Model) {
         tip(ui, "Brings back the Get set up card at the top of the Flight tab.");
         {
             let _wrap = ui.push_text_wrap_pos(0.0);
-            ui.text_disabled("Station names and sectors: VATSpy data project (CC BY-SA 4.0) · Inter (SIL OFL 1.1) · Lucide icons (ISC)");
+            ui.text_disabled(
+                "Station names and sectors: VATSpy data project (CC BY-SA 4.0) · Approach airspace: SimAware TRACON Project (CC BY-SA 4.0) · Sector levels: VATGlasses data project (CC BY-NC-SA 4.0) · Inter (SIL OFL 1.1) · Lucide icons (ISC)",
+            );
         }
     });
 }

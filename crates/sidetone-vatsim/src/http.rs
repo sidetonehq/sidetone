@@ -13,6 +13,11 @@ pub const VATSPY_URL: &str = "https://raw.githubusercontent.com/vatsimnetwork/va
 pub const STATS_URL: &str = "https://api.vatsim.net/v2/members";
 pub const BOUNDARIES_URL: &str = "https://raw.githubusercontent.com/vatsimnetwork/vatspy-data-project/master/Boundaries.geojson";
 pub const EVENTS_URL: &str = "https://my.vatsim.net/api/v2/events/latest";
+/// Approach and departure airspace shapes, from the SimAware TRACON Project's latest release.
+pub const TRACON_URL: &str = "https://github.com/vatsimnetwork/simaware-tracon-project/releases/latest/download/TRACONBoundaries.geojson";
+/// VATGlasses sector data: the list of files, and each file (CC BY-NC-SA 4.0, see `sectors`).
+pub const VATGLASSES_TREE_URL: &str = "https://api.github.com/repos/lennycolton/vatglasses-data/git/trees/main?recursive=1";
+pub const VATGLASSES_RAW_URL: &str = "https://raw.githubusercontent.com/lennycolton/vatglasses-data/main/";
 
 /// Feeds are a few MB; allow headroom.
 const BODY_LIMIT: u64 = 64 * 1024 * 1024;
@@ -108,6 +113,33 @@ impl Client {
 
     pub fn boundaries(&self) -> Result<String> {
         self.text(BOUNDARIES_URL)
+    }
+
+    pub fn tracons(&self) -> Result<String> {
+        self.text(TRACON_URL)
+    }
+
+    /// The VATGlasses data files ("data/ed.json"), one per line.
+    pub fn vatglasses_listing(&self) -> Result<String> {
+        #[derive(Deserialize)]
+        struct Tree {
+            tree: Vec<Entry>,
+        }
+        #[derive(Deserialize)]
+        struct Entry {
+            path: String,
+        }
+        let tree: Tree = serde_json::from_str(&self.text(VATGLASSES_TREE_URL)?).map_err(|e| format!("VATGlasses file list: {e}"))?;
+        let paths: Vec<String> = tree.tree.into_iter().map(|e| e.path).filter(|p| p.starts_with("data/") && p.ends_with(".json")).collect();
+        if paths.is_empty() {
+            return Err("VATGlasses file list is empty".into());
+        }
+        Ok(paths.join("\n"))
+    }
+
+    /// One VATGlasses data file, by its path in the listing.
+    pub fn vatglasses_file(&self, path: &str) -> Result<String> {
+        self.text(&format!("{VATGLASSES_RAW_URL}{path}"))
     }
 
     pub fn events(&self) -> Result<Vec<crate::events::Event>> {

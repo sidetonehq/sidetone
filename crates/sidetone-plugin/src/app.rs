@@ -494,6 +494,7 @@ fn fold_clearance_at_takeoff(m: &mut Model) {
 fn start_new_flight(m: &mut Model) {
     m.ui.collapsed.remove(&crate::ui::Fold::Clearance);
     m.ui.collapsed.insert(crate::ui::Fold::Arrival);
+    m.ui.area_folds.clear();
     m.settings.flight = FlightNotes::default();
     m.atc_rows_key = Default::default();
 }
@@ -504,10 +505,14 @@ fn autofill_flight(m: &mut Model) {
     autofill_arrival(m);
     let Some(dep) = m.state.route.departure.clone() else { return };
     if let Some(snapshot) = m.state.network.snapshot.clone() {
-        if let Some(cid) = m.settings.vatsim.cid
-            && let Some(fp) = snapshot.feed.flight_plan_for(cid)
+        // The squawk assigned for this trip, not one left over from the last flight.
+        let plan = match (m.settings.vatsim.cid, m.state.route.arrival.as_deref()) {
+            (Some(cid), Some(arr)) => snapshot.feed.flight_plan_for_trip(cid, &dep, arr),
+            (Some(cid), None) => snapshot.feed.flight_plan_for(cid).filter(|fp| fp.departure == dep),
+            _ => None,
+        };
+        if let Some(fp) = plan
             && fp.assigned_transponder != "0000"
-            && fp.departure == dep
         {
             m.settings_dirty |= FlightNotes::fill(&mut m.settings.flight.squawk, &fp.assigned_transponder);
         }
@@ -607,6 +612,8 @@ fn on_vatsim(m: &mut Model, update: Update, now: f32) {
         }
         Update::Stats(cid, stats) => m.state.network.stats = Some((cid, stats)),
         Update::FeedError(error) => m.state.network.feed_error = error,
+        Update::Tracons(tracons) => m.state.network.tracons = Some(tracons),
+        Update::Sectors(sectors) => m.state.network.sectors = Some(sectors),
     }
 }
 
@@ -617,7 +624,11 @@ fn network_tick(m: &mut Model, worker: &Worker) {
     let horizon = radio_horizon_nm(m.state.altitude_ft);
     if let Some(snapshot) = m.state.network.snapshot.clone() {
         for radio in [&mut m.state.com1, &mut m.state.com2] {
-            radio.station = match stations::on_frequency(&snapshot.stations, radio.active_khz, position) {
+            let found = stations::on_frequency(&snapshot.stations, radio.active_khz, position);
+            // On 122.800 a far-off station sharing it (Hamburg Tower near Gatwick) isn't who you
+            // hear: that's UNICOM.
+            let found = found.filter(|s| radio.active_khz != UNICOM_KHZ || position.and_then(|p| s.distance_nm(p)).is_none_or(|d| d <= horizon));
+            radio.station = match found {
                 Some(s) => {
                     let distance_nm = position.and_then(|p| s.distance_nm(p));
                     Some(TunedStation {
@@ -647,10 +658,21 @@ fn network_tick(m: &mut Model, worker: &Worker) {
     if let (Some(snapshot), Some(vatspy), Some(boundaries), Some(pos)) =
         (&m.state.network.snapshot, &m.state.network.vatspy, &m.state.network.boundaries, position)
     {
-        let covering = coverage::covering(pos, m.state.on_ground, &snapshot.stations, vatspy, boundaries);
+        let covering = coverage::covering(pos, m.state.on_ground, &snapshot.stations, vatspy, boundaries, m.state.network.tracons.as_deref());
+        // In the air, whoever owns the airspace at your level comes first (stacked sectors).
+        let owner = m.state.network.sectors.as_ref().filter(|_| !m.state.on_ground).and_then(|s| s.owner(pos, m.state.altitude_ft / 100.0, &snapshot.stations));
+        let covering = coverage::owner_first(covering, owner);
         let tuned = |khz: i32| m.state.com1.active_khz == khz || m.state.com2.active_khz == khz;
         m.state.coverage_hint = match covering.first() {
-            Some(s) if !covering.iter().any(|c| tuned(c.frequency_khz)) => Some(CoverageHint::Tune { name: s.display_name(), khz: s.frequency_khz }),
+            // Already on one of them, on its main frequency or any other it transmits on.
+            Some(s)
+                if !covering.iter().any(|c| {
+                    tuned(c.frequency_khz)
+                        || [m.state.com1.station.as_ref(), m.state.com2.station.as_ref()].into_iter().flatten().any(|t| t.callsign == c.callsign)
+                }) =>
+            {
+                Some(CoverageHint::Tune { name: s.display_name(), khz: s.frequency_khz })
+            }
             None if !m.state.on_ground && !tuned(UNICOM_KHZ) => Some(CoverageHint::Unicom),
             _ => None,
         };
@@ -658,7 +680,12 @@ fn network_tick(m: &mut Model, worker: &Worker) {
 
     // Route for "ATC along my route": SimBrief waypoints when we have them.
     let points: Vec<LatLon> = m.simbrief.as_ref().map(|p| p.fixes.iter().map(|(_, lat, lon)| LatLon { lat: *lat, lon: *lon }).collect()).unwrap_or_default();
-    let query = RouteQuery { departure: m.state.route.departure.clone(), arrival: m.state.route.arrival.clone(), points };
+    let query = RouteQuery {
+        departure: m.state.route.departure.clone(),
+        arrival: m.state.route.arrival.clone(),
+        points,
+        cruise_ft: m.simbrief.as_ref().and_then(|p| p.cruise_altitude_ft),
+    };
     if query != m.requested_route {
         worker.request(Request::SetRoute(query.clone()));
         m.requested_route = query;

@@ -146,8 +146,10 @@ pub fn on_frequency(stations: &[Station], khz: i32, from: Option<LatLon>) -> Opt
     if khz <= 0 {
         return None;
     }
-    let hz = channel_to_hz(khz);
-    let mut candidates = stations.iter().filter(|s| s.transmits_on(hz));
+    // Transmitters report either the real frequency (127.950 MHz for the 8.33 channel "127.955")
+    // or the channel number read literally (127.955 MHz); either is this channel.
+    let (real, literal) = (channel_to_hz(khz), khz as i64 * 1000);
+    let mut candidates = stations.iter().filter(|s| s.transmits_on(real) || s.transmits_on(literal));
     match from {
         Some(pos) => candidates.min_by(|a, b| {
             let da = a.distance_nm(pos).unwrap_or(f64::MAX);
@@ -219,6 +221,20 @@ mod tests {
         assert_eq!(on_frequency(&s, 118_705, Some(heathrow)).unwrap().callsign, "EGLL_TWR");
         assert_eq!(on_frequency(&s, 119_105, None).unwrap().name, "Flesland Tower");
         assert!(on_frequency(&s, 121_500, None).is_none());
+    }
+
+    #[test]
+    fn a_transmitter_reporting_the_channel_number() {
+        // Seen live: Muenchen Radar (EDDM_SH_APP, primary 120.780) also transmitting on the 8.33
+        // channel 127.955, reported as 127,955,000 Hz rather than the real 127,950,000.
+        let mut s = fixture();
+        let mut radar = s[0].clone();
+        radar.callsign = "EDDM_SH_APP".into();
+        radar.name = "Muenchen Radar".into();
+        radar.frequencies_hz = vec![120_780_000, 127_955_000];
+        s.push(radar);
+        assert_eq!(on_frequency(&s, 127_955, None).map(|s| s.callsign.as_str()), Some("EDDM_SH_APP"));
+        assert!(on_frequency(&s, 127_960, None).is_none(), "the next channel isn't it");
     }
 
     #[test]

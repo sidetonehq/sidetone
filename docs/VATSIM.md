@@ -24,6 +24,8 @@ issued by VATSIM, and never committed to this repository.
 | Events | `my.vatsim.net/api/v2/events/latest` | hourly |
 | The pilot's own hours | `api.vatsim.net/v2/members/{cid}/stats` | hourly, only if the pilot enters their CID |
 | Airport/FIR names and FIR boundaries | VATSpy data project (GitHub) | weekly, cached on disk |
+| Approach and departure airspace | SimAware TRACON Project (GitHub release) | weekly, cached on disk |
+| Sector levels and owners | VATGlasses data project (GitHub: file list, then one file per country you're in or flying through) | weekly, cached on disk |
 
 Requests identify themselves with a `Sidetone/<version>` user agent. If the data feed is
 unavailable, Sidetone backs off to 30 s and reports the problem once.

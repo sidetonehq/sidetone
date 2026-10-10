@@ -21,10 +21,12 @@ as a pilot yet.
 - The whole flight on one page, in cards you can fold away.
 - **Get set up**: a first-run checklist (CID, push-to-talk test, SimBrief, xPilot) that ticks
   itself off.
-- **Who to call** right now, one click from your radio.
-- **Flight**: departure and arrival with their ATIS letter, QNH and event badges (the full ATIS
-  and METAR on hover, click to keep open), and the route as filed on VATSIM with Copy and a
-  warning if it differs from SimBrief.
+- **Who to call** right now, one click from your radio, worked out from the real airspace of
+  approach and departure units (SimAware TRACON Project) rather than a circle round the airport,
+  so "No ATC overhead" and ATC along route are right near busy terminal areas.
+- **Flight**: departure and arrival with their ATIS letter and event badges (the full ATIS
+  and METAR on hover, click to keep open), and the route as filed on VATSIM (with the SID and
+  STAR from SimBrief when the filing leaves them out) and a warning if it differs from SimBrief.
 - **Clearance**: who to call until you're cleared, then your clearance as tiles in readback
   order. The squawk is checked against your transponder and the ATIS letter against the
   current one (green tick, or amber value and warning). Fills itself from SimBrief, VATSIM, the

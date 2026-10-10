@@ -149,6 +149,13 @@ pub fn routes_match(a: &str, b: &str) -> bool {
     !short.is_empty() && long.windows(short.len()).any(|w| w == short.as_slice())
 }
 
+/// The planned route when it's the filed one with more spelled out: filed routes often leave
+/// out the SID and STAR that SimBrief includes, so its route says how you'll actually fly.
+/// `None` when they differ, or the filed route is already as full.
+pub fn fuller_route(filed: &str, planned: &str) -> Option<String> {
+    (routes_match(filed, planned) && route_points(planned).len() > route_points(filed).len()).then(|| planned.trim().to_string())
+}
+
 /// Route words without speed/level groups ("ELB/N0459F380" → "ELB") and DCTs.
 fn route_points(route: &str) -> Vec<String> {
     route.split_whitespace().map(|t| t.split('/').next().unwrap_or(t).to_ascii_uppercase()).filter(|t| t != "DCT" && !t.is_empty()).collect()
@@ -231,6 +238,12 @@ mod tests {
         assert!(!routes_match("OKASI DCT MOU DCT ELKAP", simbrief), "a waypoint is missing");
         assert!(!routes_match("CPT UL9 KENET", simbrief));
         assert!(!routes_match("", simbrief));
+        assert_eq!(fuller_route(filed, simbrief).as_deref(), Some(simbrief), "SimBrief adds the SID and STAR");
+        assert_eq!(fuller_route(simbrief, simbrief), None, "already as full");
+        assert_eq!(fuller_route("OKASI DCT MOU DCT ELKAP", simbrief), None, "a different route");
+        // A real one: Heathrow to Manchester, filed without the SID and STAR.
+        let planned = "UMLA1G UMLAT T418 WELIN T420 ELVOS ELVO1M";
+        assert_eq!(fuller_route("UMLAT T418 WELIN T420 ELVOS", planned).as_deref(), Some(planned));
     }
 
     #[test]

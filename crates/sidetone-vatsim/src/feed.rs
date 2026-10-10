@@ -97,6 +97,21 @@ impl DataFeed {
     /// The flight plan for `cid`: the live connection's, else the most recently filed prefile.
     /// A member can have several prefiles at once (one per callsign, until they expire), and
     /// the newest is the flight they're about to fly.
+    /// The flight plan `cid` filed for this trip: the live connection's if it's for these airports,
+    /// else the newest prefile that is. After landing you're often still connected with the last
+    /// flight's plan while the next one sits in the prefiles.
+    pub fn flight_plan_for_trip(&self, cid: u32, departure: &str, arrival: &str) -> Option<&FlightPlan> {
+        let this_trip = |fp: &&FlightPlan| fp.departure.eq_ignore_ascii_case(departure) && fp.arrival.eq_ignore_ascii_case(arrival);
+        let live = self.pilots.iter().filter(|p| p.cid == cid).filter_map(|p| p.flight_plan.as_ref()).find(this_trip);
+        live.or_else(|| {
+            self.prefiles
+                .iter()
+                .filter(|p| p.cid == cid && p.flight_plan.as_ref().is_some_and(|fp| this_trip(&fp)))
+                .max_by_key(|p| crate::time::parse_iso8601(&p.last_updated).unwrap_or(i64::MIN))
+                .and_then(|p| p.flight_plan.as_ref())
+        })
+    }
+
     pub fn flight_plan_for(&self, cid: u32) -> Option<&FlightPlan> {
         let live = self.pilots.iter().find(|p| p.cid == cid).and_then(|p| p.flight_plan.as_ref());
         live.or_else(|| {
@@ -133,6 +148,27 @@ mod tests {
         )
         .unwrap();
         assert_eq!(feed.flight_plan_for(5).unwrap().arrival, "EDDC", "the newest prefile, wherever it sits in the feed");
+    }
+
+    #[test]
+    fn the_plan_for_this_trip() {
+        // Still connected after Heathrow–Manchester, with the next flight prefiled.
+        let feed: DataFeed = serde_json::from_str(
+            r#"{"pilots":[{"cid":5,"callsign":"VIR341","flight_plan":{"departure":"EGLL","arrival":"EGCC","route":"UMLAT T418 WELIN T420 ELVOS"}}],
+                "prefiles":[{"cid":5,"callsign":"VIR342","last_updated":"2026-10-07T18:00:00Z","flight_plan":{"departure":"EGCC","arrival":"EGLL","route":"LISTO L612 HON N859 KIDLI"}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            feed.flight_plan_for_trip(5, "EGCC", "EGLL").map(|f| f.route.as_str()),
+            Some("LISTO L612 HON N859 KIDLI"),
+            "the prefile for the next flight"
+        );
+        assert_eq!(
+            feed.flight_plan_for_trip(5, "egll", "egcc").map(|f| f.route.as_str()),
+            Some("UMLAT T418 WELIN T420 ELVOS"),
+            "the live one when it's this trip"
+        );
+        assert!(feed.flight_plan_for_trip(5, "EGGD", "EDDC").is_none(), "none filed for this trip");
     }
 
     #[test]

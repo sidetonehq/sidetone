@@ -68,6 +68,9 @@ pub struct UiState {
     pub expanded: std::collections::HashSet<String>,
     /// Flight tab sections folded shut, by the pilot or by Sidetone (the clearance after takeoff).
     pub collapsed: std::collections::HashSet<Fold>,
+    /// Route ATC areas the pilot opened (true) or folded (false), by area id. Others follow the
+    /// flight: areas you've passed fold away.
+    pub area_folds: std::collections::HashMap<String, bool>,
     /// Open the SimBrief Pilot ID popup on the next frame (Import flight without an ID saved).
     pub open_import: bool,
     pub simbrief_user_input: String,
@@ -117,20 +120,32 @@ impl Model {
         }
     }
 
-    /// Your flight plan as filed on VATSIM (what ATC sees), if it has a route.
+    /// Your flight plan as filed on VATSIM (what ATC sees), if it has a route. When you've
+    /// imported a flight, only a plan for its airports counts: after landing you're often still
+    /// connected with the last flight's plan while the next one is prefiled.
     pub fn filed_plan(&self) -> Option<sidetone_vatsim::feed::FlightPlan> {
         let cid = self.settings.vatsim.cid?;
-        let plan = self.state.network.snapshot.as_ref()?.feed.flight_plan_for(cid)?.clone();
-        (!plan.route.trim().is_empty()).then_some(plan)
+        let feed = &self.state.network.snapshot.as_ref()?.feed;
+        let simbrief = self.simbrief.as_ref().filter(|p| !p.origin.is_empty() && !p.destination.is_empty());
+        let plan = match simbrief {
+            Some(p) => feed.flight_plan_for_trip(cid, &p.origin, &p.destination)?,
+            None => feed.flight_plan_for(cid)?,
+        };
+        (!plan.route.trim().is_empty()).then(|| plan.clone())
     }
 
-    /// The route to fly and where it came from: as filed on VATSIM, else from SimBrief.
+    /// The route to fly and where it came from: as filed on VATSIM, else from SimBrief. When
+    /// the filed route is SimBrief's without the SID and STAR (often the case), SimBrief's,
+    /// which says how you'll fly it.
     pub fn route_text(&self) -> Option<(String, &'static str)> {
+        let simbrief = self.simbrief.as_ref().map(|p| p.route.trim()).filter(|r| !r.is_empty());
         if let Some(plan) = self.filed_plan() {
-            return Some((plan.route.trim().to_string(), "Filed on VATSIM"));
+            return Some(match simbrief.and_then(|planned| sidetone_core::clearance::fuller_route(&plan.route, planned)) {
+                Some(full) => (full, "Filed on VATSIM · SID and STAR from SimBrief"),
+                None => (plan.route.trim().to_string(), "Filed on VATSIM"),
+            });
         }
-        let plan = self.simbrief.as_ref().filter(|p| !p.route.trim().is_empty())?;
-        Some((plan.route.trim().to_string(), "SimBrief"))
+        simbrief.map(|r| (r.to_string(), "SimBrief"))
     }
 
     /// The departure ATIS letter on the network now, and the station broadcasting it.
@@ -307,7 +322,7 @@ pub fn fold(ui: &Ui, m: &mut Model, id: Fold, title: &str, actions: &[(&str, &st
                 clicked = Some(i);
             }
             if !tooltip.is_empty() && ui.is_item_hovered() {
-                ui.tooltip_text(tooltip);
+                wrapped_tooltip(ui, tooltip);
             }
         }
     }
@@ -359,6 +374,27 @@ pub fn toggle_button(ui: &Ui, label: &str, on: bool) -> bool {
     use sidetone_ui::imgui::StyleColor;
     let _c = on.then(|| ui.push_style_color(StyleColor::Button, [0.20, 0.78, 0.72, 0.45]));
     pill(ui, label)
+}
+
+/// A small "i" in a circle, one text line tall, that shows `details` on hover: for facts worth
+/// having but not worth a line (where the route came from). Drawn, to match the Lucide icons.
+pub fn info_icon(ui: &Ui, details: &str) {
+    let size = ui.current_font_size();
+    let unit = size / theme::FONT_SIZE;
+    let top = ui.cursor_screen_pos();
+    let width = size * 0.8;
+    ui.dummy([width, ui.text_line_height()]);
+    let hovered = ui.is_item_hovered();
+    let color = if hovered { theme::TEXT } else { theme::TEXT_DIM };
+    // Centred on the capitals, like the font's icons; about as tall as them.
+    let (cx, cy, r) = (top[0] + width * 0.5, top[1] + size * 0.5, size * 0.34);
+    let draw = ui.get_window_draw_list();
+    draw.add_circle([cx, cy], r, color).thickness(1.2 * unit).build();
+    draw.add_circle([cx, cy - r * 0.42], 0.75 * unit, color).filled(true).build();
+    draw.add_line([cx, cy - r * 0.1], [cx, cy + r * 0.5], color).thickness(1.2 * unit).build();
+    if hovered {
+        wrapped_tooltip(ui, details);
+    }
 }
 
 /// A green tick or amber warning for a checked value, explaining itself on hover.
@@ -450,10 +486,12 @@ pub fn strong(ui: &Ui, m: &Model, color: [f32; 4], text: &str) {
     ui.text_colored(color, text);
 }
 
-/// A tooltip for long text (ATIS, METAR), wrapped to a readable width.
+/// A tooltip, wrapped to a readable width, and never wider than the window it's drawn in (a
+/// controller's long info line would run off a narrow popped-out window).
 pub fn wrapped_tooltip(ui: &Ui, text: &str) {
     ui.tooltip(|| {
-        let _wrap = ui.push_text_wrap_pos(ui.current_font_size() * 32.0);
+        let fits = ui.io().display_size()[0] - 32.0;
+        let _wrap = ui.push_text_wrap_pos((ui.current_font_size() * 32.0).min(fits.max(ui.current_font_size() * 10.0)));
         ui.text(text);
     });
 }

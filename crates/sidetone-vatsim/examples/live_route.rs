@@ -10,7 +10,7 @@ fn main() {
     let worker = Worker::spawn(std::env::temp_dir().join("sidetone-cache"), move |u| {
         let _ = tx.send(u);
     });
-    worker.request(Request::SetRoute(RouteQuery { departure: Some(dep.clone()), arrival: Some(arr.clone()), points: vec![] }));
+    worker.request(Request::SetRoute(RouteQuery { departure: Some(dep.clone()), arrival: Some(arr.clone()), points: vec![], ..Default::default() }));
     let mut got = (false, false);
     for u in rx {
         match u {

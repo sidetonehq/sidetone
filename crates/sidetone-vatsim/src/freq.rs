@@ -27,6 +27,20 @@ pub fn channel_to_hz(khz: i32) -> i64 {
     base as i64 * 1000 + offset_hz
 }
 
+/// The channel name in kHz for a frequency in Hz, as a radio shows it: 129_525_000 → 129525,
+/// 132_841_667 → 132840 (an 8.33 kHz channel). The inverse of [`channel_to_hz`] for the 25 kHz
+/// spacing (where 8.33 kHz radios also have an "…05" name for the same frequency).
+pub fn hz_to_channel(hz: i64) -> i32 {
+    let base_khz = (hz / 25_000 * 25) as i32;
+    let offset = match hz % 25_000 {
+        r if r < 4_167 => 0,
+        r if r < 12_500 => 10,
+        r if r < 20_833 => 15,
+        _ => 25,
+    };
+    base_khz + offset
+}
+
 /// True when two frequencies in Hz are the same channel (transceivers carry a few Hz of noise).
 pub fn same_frequency(a_hz: i64, b_hz: i64) -> bool {
     (a_hz - b_hz).abs() <= 2_000
@@ -42,6 +56,15 @@ pub const UNICOM_KHZ: i32 = 122_800;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn channel_from_hz() {
+        assert_eq!(hz_to_channel(129_525_000), 129_525);
+        assert_eq!(hz_to_channel(133_615_000), 133_615);
+        for khz in [118_505, 121_705, 132_840, 132_835, 124_230, 127_955] {
+            assert!(same_frequency(channel_to_hz(hz_to_channel(channel_to_hz(khz))), channel_to_hz(khz)), "{khz}");
+        }
+    }
 
     #[test]
     fn parses() {

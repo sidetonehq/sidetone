@@ -72,7 +72,7 @@ fn hint(ui: &Ui, m: &mut Model) {
 }
 
 /// Departure and arrival, one line each: airport, ATIS and METAR buttons (hover to read,
-/// click to keep open), QNH and events. Then the route.
+/// click to keep open) and events (QNH too for the nearest airport). Then the route.
 fn flight(ui: &Ui, m: &mut Model) {
     let title = match &m.simbrief {
         Some(p) if !p.callsign.is_empty() => format!("FLIGHT · {} · {} · {} · {}", p.callsign, p.aircraft_icao, p.cruise_label(), p.ete_label()),
@@ -188,7 +188,11 @@ fn flight(ui: &Ui, m: &mut Model) {
             if expandable(ui, m, "METAR", &format!("metar:{icao}"), &metar, None) {
                 open.push((format!("{icao} METAR"), metar.clone()));
             }
-            if let Some(qnh) = qnh_from_metar(&metar) {
+            // Departure and arrival QNH live on the Clearance and Arrival cards; only the
+            // nearest airport (no flight loaded) shows it here.
+            if *label == "Nearest"
+                && let Some(qnh) = qnh_from_metar(&metar)
+            {
                 flow(ui, line_left, line_right, ui.calc_text_size(&qnh)[0]);
                 ui.text_disabled(qnh);
             }
@@ -235,52 +239,46 @@ fn opened_texts(ui: &Ui, x: f32, texts: Vec<(String, String)>) {
     }
 }
 
-/// The full route: as filed on VATSIM (what ATC sees) when there is one, else SimBrief, with
-/// Copy. If the two differ, a warning and the SimBrief route on demand.
+/// The full route: as filed on VATSIM (what ATC sees) when there is one, with the SID and STAR
+/// from SimBrief when the filing leaves them out, else SimBrief's. Its source and the alternate
+/// are behind an info icon. If the two differ, a warning and the SimBrief route on demand.
 fn route(ui: &Ui, m: &mut Model, text_x: f32, narrow: bool) {
     let filed = m.filed_plan();
     let simbrief = m.simbrief.clone().filter(|p| !p.route.trim().is_empty());
-    let (text, source, alternate) = match (&filed, &simbrief) {
-        (Some(fp), _) => (fp.route.trim().to_string(), "Filed on VATSIM", fp.alternate.clone()),
-        (None, Some(p)) => (p.route.trim().to_string(), "SimBrief", p.alternate.clone()),
-        (None, None) => return,
-    };
+    let Some((text, source)) = m.route_text() else { return };
+    let alternate = filed.as_ref().map(|fp| fp.alternate.clone()).or_else(|| simbrief.as_ref().map(|p| p.alternate.clone())).unwrap_or_default();
     ui.spacing();
     super::caption(ui, m, "Route");
     if !narrow {
         ui.same_line_with_pos(text_x);
     }
+    // Where the route came from, and the alternate, behind an info icon before it.
+    let alternate = alternate.trim();
+    let details = if alternate.is_empty() { source.to_string() } else { format!("{source}\nAlternate {alternate}") };
     ui.group(|| {
-        {
-            let _wrap = ui.push_text_wrap_pos(0.0);
-            ui.text(&text);
-        }
-        // Copy, source and any warning flow onto further lines rather than squeezing.
-        let left = ui.cursor_screen_pos()[0];
-        let right = left + ui.content_region_avail()[0];
-        if super::pill(ui, &format!("{}##copy_route", icon::COPY)) {
-            sidetone_ui::copy_to_clipboard(&text);
-            m.system_message("Route copied", sidetone_xplm::elapsed_time());
-        }
-        if ui.is_item_hovered() {
-            ui.tooltip_text("Copy route");
-        }
-        let alternate = alternate.trim();
-        let source = if alternate.is_empty() { source.to_string() } else { format!("{source} · alternate {alternate}") };
-        flow(ui, left, right, ui.calc_text_size(&source)[0]);
-        ui.text_disabled(&source);
-        if let (Some(fp), Some(plan)) = (&filed, &simbrief)
-            && !sidetone_core::clearance::routes_match(&fp.route, &plan.route)
-        {
-            let warning = format!("{} Differs from SimBrief", icon::ALERT);
-            flow(ui, left, right, ui.calc_text_size(&warning)[0]);
-            ui.text_colored(theme::WARN, &warning);
-            flow(ui, left, right, super::pill_width(ui, "SimBrief route"));
-            if expandable(ui, m, "SimBrief route", "route:simbrief", plan.route.trim(), None) {
+        super::info_icon(ui, &details);
+        ui.same_line();
+        ui.group(|| {
+            {
                 let _wrap = ui.push_text_wrap_pos(0.0);
-                ui.text(plan.route.trim());
+                ui.text(&text);
             }
-        }
+            // A warning only when the filed route isn't the SimBrief one; it flows onto further
+            // lines rather than squeezing.
+            if let (Some(fp), Some(plan)) = (&filed, &simbrief)
+                && !sidetone_core::clearance::routes_match(&fp.route, &plan.route)
+            {
+                let left = ui.cursor_screen_pos()[0];
+                let right = left + ui.content_region_avail()[0];
+                let warning = format!("{} Differs from SimBrief", icon::ALERT);
+                ui.text_colored(theme::WARN, &warning);
+                flow(ui, left, right, super::pill_width(ui, "SimBrief route"));
+                if expandable(ui, m, "SimBrief route", "route:simbrief", plan.route.trim(), None) {
+                    let _wrap = ui.push_text_wrap_pos(0.0);
+                    ui.text(plan.route.trim());
+                }
+            }
+        });
     });
 }
 
@@ -342,9 +340,16 @@ fn along_route(ui: &Ui, m: &mut Model) {
     if let Some(leg) = here {
         unicom_line(ui, m, &format!("No ATC in {}", leg.label), Some(&leg.label));
     }
+    // Areas you've passed fold away by themselves (unless you've opened or folded one); the one
+    // you're in is marked. Without a position nothing counts as passed.
+    let current = m.state.position.map(|_| current_leg(m, &legs));
     for (i, leg) in legs.iter().enumerate().filter(|(_, l)| !l.online.is_empty()) {
         let _id = ui.push_id(i);
-        staffed_area(ui, m, leg, narrow, unit);
+        let passed = current.is_some_and(|c| i < c);
+        let open = m.ui.area_folds.get(&leg.id).copied().unwrap_or(!passed);
+        if staffed_area(ui, m, leg, narrow, unit, open, current == Some(i)) {
+            m.ui.area_folds.insert(leg.id.clone(), !open);
+        }
     }
 }
 
@@ -374,21 +379,48 @@ fn unicom_line(ui: &Ui, m: &mut Model, text: &str, area: Option<&str>) {
             m.actions.push(Action::Tune { com: Com::One, khz: unicom });
         }
         if ui.is_item_hovered() {
-            ui.tooltip_text("Tune COM1 to 122.800 and announce your intentions in text or voice");
+            wrapped_tooltip(ui, "Tune COM1 to 122.800 and announce your intentions in text or voice");
         }
     }
 }
 
-/// A staffed area and its stations as tune-on-click chips. Wide windows put the chips in a
-/// column on the area's line; narrow ones always start them on the line below (indented). Either
-/// way, further chips wrap under the first.
-fn staffed_area(ui: &Ui, m: &mut Model, leg: &sidetone_vatsim::coverage::RouteLeg, narrow: bool, unit: f32) {
-    ui.align_text_to_frame_padding();
+/// A staffed area and every station covering it as tune-on-click chips. Its header folds it
+/// (click the arrow or name); folded it's one line with how many stations. Wide windows put
+/// the chips in a column on the area's line; narrow ones always start them on the line below
+/// (indented). Either way, further chips wrap under the first. Returns true when the pilot
+/// clicked the header.
+fn staffed_area(ui: &Ui, m: &mut Model, leg: &sidetone_vatsim::coverage::RouteLeg, narrow: bool, unit: f32, open: bool, now: bool) -> bool {
     let left = ui.cursor_screen_pos()[0];
+    let top = ui.cursor_screen_pos()[1];
     let right_edge = left + ui.content_region_avail()[0];
+    // The header: arrow, dot, name, "now", and the count when folded. One click target.
+    let header_right = if narrow || !open { right_edge } else { ui.window_pos()[0] + 150.0 * unit - 8.0 * unit };
+    let clicked = ui.invisible_button("##area", [(header_right - left).max(40.0 * unit), ui.frame_height()]);
+    let hovered = ui.is_item_hovered();
+    let arrow = [left + 4.0 * unit, top + ui.frame_height() * 0.5];
+    let color = if hovered { theme::TEXT } else { theme::TEXT_DIM };
+    let s = 3.5 * unit;
+    let points = if open {
+        [[arrow[0] - s, arrow[1] - s * 0.6], [arrow[0] + s, arrow[1] - s * 0.6], [arrow[0], arrow[1] + s * 0.8]]
+    } else {
+        [[arrow[0] - s * 0.6, arrow[1] - s], [arrow[0] - s * 0.6, arrow[1] + s], [arrow[0] + s * 0.8, arrow[1]]]
+    };
+    ui.get_window_draw_list().add_triangle(points[0], points[1], points[2], color).filled(true).build();
+    ui.set_cursor_screen_pos([left + 14.0 * unit, top]);
+    ui.align_text_to_frame_padding();
     ui.text_colored(theme::OK, "●");
     ui.same_line();
     ui.text(&leg.label);
+    if now {
+        ui.same_line();
+        ui.text_colored(theme::ACCENT, "· now");
+    }
+    if !open {
+        let n = leg.online.len();
+        ui.same_line();
+        ui.text_disabled(format!("· {n} station{}", if n == 1 { "" } else { "s" }));
+        return clicked;
+    }
     let row_start = if narrow {
         let row_start = left + 22.0 * unit;
         let y = ui.cursor_screen_pos()[1];
@@ -399,8 +431,7 @@ fn staffed_area(ui: &Ui, m: &mut Model, leg: &sidetone_vatsim::coverage::RouteLe
         ui.cursor_screen_pos()[0]
     };
     let mut first = true;
-    let shown = leg.online.len().min(MAX_CHIPS);
-    for (callsign, name, khz) in leg.online.iter().take(shown) {
+    for (callsign, name, khz) in leg.online.iter() {
         let _id = ui.push_id(callsign.as_str());
         let label = format!("{name} {}", format_com_khz(*khz));
         chip_place(ui, &mut first, row_start, right_edge, super::pill_width(ui, &label));
@@ -416,18 +447,41 @@ fn staffed_area(ui: &Ui, m: &mut Model, leg: &sidetone_vatsim::coverage::RouteLe
                 .and_then(|snap| snap.stations.iter().find(|s| s.callsign == *callsign))
                 .map(|s| s.name_source.describe())
                 .unwrap_or_default();
-            ui.tooltip_text(format!("{callsign}\n{source}\nClick to tune COM1"));
+            wrapped_tooltip(ui, &format!("{callsign}\n{source}\nClick to tune COM1"));
+        }
+        // Other frequencies the controller also transmits on: a sector they're covering
+        // ("contact Muenchen Radar 129.525" from EDMM_BBG on 133.615, seen live).
+        let extra: Vec<i32> = m
+            .state
+            .network
+            .snapshot
+            .as_ref()
+            .and_then(|snap| snap.stations.iter().find(|s| s.callsign == *callsign))
+            .map(|s| {
+                let main = sidetone_vatsim::freq::channel_to_hz(*khz);
+                let mut extra: Vec<i32> = s
+                    .frequencies_hz
+                    .iter()
+                    .filter(|hz| !sidetone_vatsim::freq::same_frequency(**hz, main))
+                    .map(|hz| sidetone_vatsim::freq::hz_to_channel(*hz))
+                    .collect();
+                extra.sort_unstable();
+                extra.dedup();
+                extra
+            })
+            .unwrap_or_default();
+        for other in extra {
+            let label = format_com_khz(other);
+            chip_place(ui, &mut first, row_start, right_edge, super::pill_width(ui, &label));
+            if super::pill(ui, &label) {
+                m.actions.push(Action::Tune { com: Com::One, khz: other });
+            }
+            if ui.is_item_hovered() {
+                wrapped_tooltip(ui, &format!("{callsign} also transmits on {label}\n(another sector they're covering)\nClick to tune COM1"));
+            }
         }
     }
-    if leg.online.len() > shown {
-        let more = format!("+{} more", leg.online.len() - shown);
-        chip_place(ui, &mut first, row_start, right_edge, ui.calc_text_size(&more)[0]);
-        ui.text_disabled(&more);
-        if ui.is_item_hovered() {
-            let rest: Vec<String> = leg.online.iter().skip(shown).map(|(cs, name, khz)| format!("{name} {} · {cs}", format_com_khz(*khz))).collect();
-            ui.tooltip_text(format!("{}\n\nAll are in the ATC tab.", rest.join("\n")));
-        }
-    }
+    clicked
 }
 
 /// Which route area you're in now: the departure while on the ground, else the first area
@@ -462,9 +516,6 @@ fn unstaffed_note(label: &str, stations: &[sidetone_vatsim::stations::Station]) 
     }
     note
 }
-
-/// Stations shown per route area before collapsing into "+N more".
-const MAX_CHIPS: usize = 3;
 
 /// Places the next chip on the current line if it fits, otherwise on a new line indented to `row_start`.
 fn chip_place(ui: &Ui, first: &mut bool, row_start: f32, right_edge: f32, width: f32) {

@@ -61,6 +61,10 @@ pub struct Network {
     pub metars: HashMap<String, String>,
     pub stats: Option<(u32, MemberStats)>,
     pub boundaries: Option<Arc<Boundaries>>,
+    /// Approach and departure airspace shapes, for who covers you.
+    pub tracons: Option<Arc<sidetone_vatsim::tracon::Tracons>>,
+    /// Sector levels and owners (VATGlasses), for the areas you're in or flying through.
+    pub sectors: Option<Arc<sidetone_vatsim::sectors::Sectors>>,
     pub events: Arc<Vec<Event>>,
     pub route_atc: Arc<Vec<RouteLeg>>,
 }
