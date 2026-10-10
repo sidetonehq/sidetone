@@ -10,7 +10,6 @@ use sidetone_core::layout::{self, Bounds};
 use sidetone_core::settings::Settings;
 use sidetone_core::state::CoverageHint;
 use sidetone_core::state::TunedStation;
-use sidetone_services::hoppie::session::Notice;
 use sidetone_services::keychain::{self, Secret};
 use sidetone_services::worker as services;
 use sidetone_ui::ImguiWindow;
@@ -36,16 +35,10 @@ pub enum Action {
     TogglePanel,
     ToggleMainWindow,
     SubmitChat(String),
-    Tune {
-        com: Com,
-        khz: i32,
-    },
+    Tune { com: Com, khz: i32 },
     SaveSecret(Secret, Redacted),
     DeleteSecret(Secret),
     ImportSimBrief,
-    /// Clear everything specific to the current flight (keeps the imported SimBrief plan).
-    NewFlight,
-    Hoppie(HoppieAction),
     ResetPanelPosition,
     SaveSettings,
 }
@@ -58,16 +51,6 @@ impl std::fmt::Debug for Redacted {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("<redacted>")
     }
-}
-
-/// CPDLC/ACARS operations requested by the UI.
-#[derive(Debug)]
-pub enum HoppieAction {
-    Logon(String),
-    Logoff,
-    Reply { id: u64, reply: String },
-    Request(String),
-    Pdc { station: String, stand: String },
 }
 
 pub const PANEL_SIZE: (i32, i32) = (440, 84);
@@ -213,7 +196,7 @@ impl App {
         };
         {
             let mut m = model.borrow_mut();
-            m.hoppie_ready = keychain::get(Secret::HoppieLogon).is_some();
+            keychain::delete_retired();
             m.simbrief_user_saved = keychain::get(Secret::SimbriefUsername).is_some();
         }
 
@@ -233,15 +216,15 @@ impl App {
                 let now = elapsed_time();
                 crate::drain_bus(|event| match event {
                     Event::Vatsim(update) => on_vatsim(&mut m, update, now),
-                    Event::Services(update) => on_services(&mut m, update, &services, now),
+                    Event::Services(update) => on_services(&mut m, update, now),
                     Event::SimLog(_) => {}
                 });
                 sim.read(&mut m.state);
+                fold_clearance_at_takeoff(&mut m);
                 bridge_tick(&mut m, now);
                 if now >= next_network_tick {
                     next_network_tick = now + 1.0;
                     network_tick(&mut m, &worker);
-                    datalink_tick(&mut m, &services);
                     window_tick(&mut m, &sim, &panel, &main_window);
                 }
                 let actions = std::mem::take(&mut m.actions);
@@ -251,6 +234,9 @@ impl App {
                     save |= apply(action, &mut m, &sim, &services, &panel, &main_window, &menu);
                 }
                 keep_on_screen(&panel, &m.settings);
+                let (in_vr, mut placed) = (m.was_vr, m.attached_at);
+                follow_panel(&panel, &main_window, &m.settings, in_vr, &mut placed);
+                m.attached_at = placed;
                 if panel.take_moved() {
                     let g = panel.handle().geometry();
                     m.settings.panel.position = Some((g.left, g.top));
@@ -258,8 +244,13 @@ impl App {
                 }
                 if main_window.take_moved() && !main_window.handle().is_popped_out() {
                     let g = main_window.handle().geometry();
-                    m.settings.main_window.position = Some((g.left, g.top));
-                    m.settings.main_window.size = (g.width(), g.height());
+                    if m.settings.main_window.attach_to_panel {
+                        // Attached: the panel decides where and how wide; keep the chosen height.
+                        m.settings.main_window.size.1 = g.height();
+                    } else {
+                        m.settings.main_window.position = Some((g.left, g.top));
+                        m.settings.main_window.size = (g.width(), g.height());
+                    }
                     save = true;
                 }
                 save |= std::mem::take(&mut m.settings_dirty);
@@ -303,6 +294,8 @@ fn window_tick(m: &mut Model, sim: &Sim, panel: &ImguiWindow, main_window: &Imgu
     main_window.set_user_scale(scale);
     let g = panel.handle().geometry();
     let want = panel_rect(&m.settings);
+    // The window is never narrower than the panel.
+    main_window.set_min_width(want.width());
     if !panel.handle().is_popped_out() && (g.width() != want.width() || g.height() != want.height()) {
         panel.handle().set_geometry(Rect { left: g.left, top: g.top, right: g.left + want.width(), bottom: g.top - want.height() });
     }
@@ -326,6 +319,43 @@ fn window_tick(m: &mut Model, sim: &Sim, panel: &ImguiWindow, main_window: &Imgu
     m.state.keyboard_captured = panel.handle().has_keyboard_focus() || main_window.handle().has_keyboard_focus();
     m.state.perf.panel_ms = panel.cpu_ms();
     m.state.perf.window_ms = if main_window.is_visible() { main_window.cpu_ms() } else { 0.0 };
+}
+
+/// Space between the panel and the attached window: they read as one sidebar.
+const ATTACH_GAP: i32 = 4;
+
+/// "Attach to panel": keep the main window directly under the panel at its width, so the two
+/// read as one sidebar. Not while popped out or in VR, where the windows live elsewhere.
+///
+/// Dragging the window by its header moves the panel along with it; resizing keeps the new
+/// height. `placed` remembers where this last put the window, to tell the two apart.
+fn follow_panel(panel: &ImguiWindow, main_window: &ImguiWindow, settings: &Settings, in_vr: bool, placed: &mut Option<Rect>) {
+    let w = main_window.handle();
+    let attached = settings.main_window.attach_to_panel && !in_vr && main_window.is_visible() && !w.is_popped_out() && !panel.handle().is_popped_out();
+    // Attached, the panel sets the width: only the bottom edge resizes.
+    main_window.set_width_locked(attached);
+    if !attached {
+        *placed = None;
+        return;
+    }
+    let g = w.geometry();
+    let p = panel.handle().geometry();
+    // The pilot dragged the window (moved, same size): bring the panel along above it.
+    if let Some(last) = *placed
+        && (g.left, g.top) != (last.left, last.top)
+        && (g.width(), g.height()) == (last.width(), last.height())
+    {
+        let top = g.top + ATTACH_GAP + p.height();
+        panel.handle().set_geometry(Rect { left: g.left, top, right: g.left + p.width(), bottom: top - p.height() });
+        *placed = Some(g);
+        return;
+    }
+    let panel_at = Bounds { left: p.left, top: p.top, right: p.right, bottom: p.bottom };
+    let want = to_rect(layout::attached_below(panel_at, g.height(), ATTACH_GAP, screen()));
+    if (g.left, g.top, g.right, g.bottom) != (want.left, want.top, want.right, want.bottom) {
+        w.set_geometry(want);
+    }
+    *placed = Some(want);
 }
 
 /// X-Plane may report a placeholder screen size while starting up, and the user can resize
@@ -391,10 +421,6 @@ fn apply(
             match keychain::set(secret, value.trim()) {
                 Ok(()) => {
                     match secret {
-                        Secret::HoppieLogon => {
-                            m.hoppie_ready = true;
-                            m.hoppie_configured_callsign.clear(); // re-send identity with the new code
-                        }
                         Secret::SimbriefUsername => m.simbrief_user_saved = true,
                     }
                     m.system_message("Saved to your macOS Keychain", elapsed_time());
@@ -406,11 +432,6 @@ fn apply(
         Action::DeleteSecret(secret) => {
             keychain::delete(secret);
             match secret {
-                Secret::HoppieLogon => {
-                    m.hoppie_ready = false;
-                    services.request(services::Request::ConfigureHoppie { logon: None, callsign: String::new() });
-                    m.hoppie_configured_callsign.clear();
-                }
                 Secret::SimbriefUsername => m.simbrief_user_saved = false,
             }
             false
@@ -425,21 +446,6 @@ fn apply(
             }
             false
         }
-        Action::NewFlight => {
-            start_new_flight(m);
-            if let Some(plan) = m.simbrief.clone() {
-                m.settings.flight.runway = plan.origin_runway.clone();
-                m.settings.flight.sid = clearance::sid_from_route(&plan.route).unwrap_or_default();
-            }
-            m.recompute_route();
-            autofill_flight(m);
-            m.system_message("New flight started", elapsed_time());
-            true
-        }
-        Action::Hoppie(op) => {
-            hoppie_action(op, m, services);
-            false
-        }
         Action::SubmitChat(text) => {
             submit_chat(&text, m, sim);
             false
@@ -447,93 +453,9 @@ fn apply(
     }
 }
 
-/// Keeps the services worker's Hoppie identity in step with the datalink callsign. The
-/// callsign is frozen while logged on to a station.
-fn datalink_tick(m: &mut Model, services: &services::Worker) {
-    if !m.hoppie_ready || m.hoppie.station().is_some() {
-        return;
-    }
-    let callsign = m.datalink_callsign();
-    if callsign != m.hoppie_configured_callsign {
-        m.hoppie.callsign = callsign.clone();
-        services.request(services::Request::ConfigureHoppie { logon: keychain::get(Secret::HoppieLogon), callsign: callsign.clone() });
-        m.hoppie_configured_callsign = callsign;
-    }
-}
-
-fn hoppie_action(op: HoppieAction, m: &mut Model, services: &services::Worker) {
-    let now = elapsed_time();
-    if !m.hoppie_ready {
-        m.system_message("Add your Hoppie logon code in Settings first.", now);
-        return;
-    }
-    if m.hoppie.callsign.is_empty() {
-        m.system_message("Set a callsign for datalink first (CPDLC tab).", now);
-        return;
-    }
-    let out = match op {
-        HoppieAction::Logon(station) if !station.trim().is_empty() => Some(m.hoppie.logon(&station)),
-        HoppieAction::Logon(_) => None,
-        HoppieAction::Logoff => m.hoppie.logoff(),
-        HoppieAction::Reply { id, reply } => m.hoppie.reply(id, &reply),
-        HoppieAction::Request(text) => {
-            let out = m.hoppie.request(&text);
-            if out.is_none() {
-                m.system_message("Log on to an ATC station before sending CPDLC requests.", now);
-            }
-            out
-        }
-        HoppieAction::Pdc { station, stand } => {
-            let (dep, arr) = (m.state.route.departure.clone().unwrap_or_default(), m.state.route.arrival.clone().unwrap_or_default());
-            if dep.is_empty() || arr.is_empty() {
-                m.system_message("A PDC needs your departure and arrival (import SimBrief or set them on the Flight tab).", now);
-                None
-            } else {
-                let aircraft = m.simbrief.as_ref().map(|p| p.aircraft_icao.clone()).unwrap_or_default();
-                let atis = m
-                    .state
-                    .network
-                    .snapshot
-                    .as_ref()
-                    .and_then(|s| stations::departure_atis(&s.stations, &dep))
-                    .and_then(|st| st.atis_code.clone())
-                    .unwrap_or_default();
-                let station = if station.trim().is_empty() { dep.clone() } else { station };
-                Some(m.hoppie.request_pdc(&station, &aircraft, &dep, &arr, &stand, &atis))
-            }
-        }
-    };
-    if let Some(out) = out {
-        services.request(services::Request::Send(out));
-    }
-}
-
-/// Applies an update from the services worker (Hoppie, SimBrief).
-fn on_services(m: &mut Model, update: services::Update, worker: &services::Worker, now: f32) {
+/// Applies an update from the services worker (SimBrief).
+fn on_services(m: &mut Model, update: services::Update, now: f32) {
     match update {
-        services::Update::Received(messages) => {
-            let (notices, auto) = m.hoppie.on_incoming(messages);
-            for out in auto {
-                worker.request(services::Request::Send(out));
-            }
-            for notice in notices {
-                let text = match notice {
-                    Notice::Uplink { station, text } => {
-                        let parsed = clearance::parse(&text);
-                        if !parsed.is_empty() && m.settings.flight.apply_clearance(&parsed) {
-                            m.settings_dirty = true;
-                            m.state.push_message("Sidetone", "Clearance noted in your Clearance card", now);
-                        }
-                        format!("{station}: {}", text.replace('\n', " "))
-                    }
-                    Notice::LoggedOn(station) => format!("Logged on to {station}"),
-                    Notice::LogonRejected(station) => format!("{station} rejected the logon"),
-                    Notice::LoggedOff(station) => format!("{station} ended the CPDLC connection"),
-                };
-                m.state.push_message("CPDLC", text, now);
-            }
-        }
-        services::Update::HoppieStatus(status) => m.hoppie_error = status.err(),
         services::Update::SimBrief(result) => match result {
             Ok(plan) => {
                 m.simbrief_status = None;
@@ -541,41 +463,56 @@ fn on_services(m: &mut Model, update: services::Update, worker: &services::Worke
                 let f = &mut m.settings.flight;
                 f.runway = plan.origin_runway.clone();
                 f.sid = clearance::sid_from_route(&plan.route).unwrap_or_default();
+                f.arrival.runway = plan.destination_runway.clone();
+                f.arrival.star = clearance::star_from_route(&plan.route).unwrap_or_default();
                 m.system_message(format!("Imported SimBrief plan {} {} → {}. New flight started.", plan.callsign, plan.origin, plan.destination), now);
                 m.simbrief = Some(plan);
                 m.recompute_route();
                 autofill_flight(m);
                 m.settings_dirty = true;
             }
-            Err(e) => m.simbrief_status = Some(e),
+            Err(e) => {
+                m.system_message(format!("Import flight: {e}"), now);
+                m.simbrief_status = Some(e);
+            }
         },
     }
 }
 
-/// A new SimBrief plan means a new flight: clear everything specific to the last one. An
-/// active CPDLC logon is kept, because logging off would send a message to the controller.
+/// Takeoff folds the Clearance section away (it has done its job) and opens Arrival. The pilot
+/// can change either.
+fn fold_clearance_at_takeoff(m: &mut Model) {
+    let on_ground = m.state.on_ground;
+    if m.was_on_ground == Some(true) && !on_ground {
+        m.ui.collapsed.insert(crate::ui::Fold::Clearance);
+        m.ui.collapsed.remove(&crate::ui::Fold::Arrival);
+    }
+    m.was_on_ground = Some(on_ground);
+}
+
+/// A new SimBrief plan means a new flight: clear everything specific to the last one.
 fn start_new_flight(m: &mut Model) {
+    m.ui.collapsed.remove(&crate::ui::Fold::Clearance);
+    m.ui.collapsed.insert(crate::ui::Fold::Arrival);
+    m.ui.area_folds.clear();
     m.settings.flight = FlightNotes::default();
-    m.settings.vatsim.departure.clear();
-    m.settings.vatsim.arrival.clear();
-    let ui = &mut m.ui;
-    ui.cpdlc_callsign.clear();
-    ui.cpdlc_text.clear();
-    ui.cpdlc_level.clear();
-    ui.cpdlc_direct.clear();
-    ui.pdc_stand.clear();
     m.atc_rows_key = Default::default();
 }
 
 /// Fills the clearance card from live data: the assigned squawk (VATSIM flight plan), the
 /// departure ATIS letter, transition level and QNH. Typed values are respected (see `FlightNotes::track`).
 fn autofill_flight(m: &mut Model) {
+    autofill_arrival(m);
     let Some(dep) = m.state.route.departure.clone() else { return };
     if let Some(snapshot) = m.state.network.snapshot.clone() {
-        if let Some(cid) = m.settings.vatsim.cid
-            && let Some(fp) = snapshot.feed.flight_plan_for(cid)
+        // The squawk assigned for this trip, not one left over from the last flight.
+        let plan = match (m.settings.vatsim.cid, m.state.route.arrival.as_deref()) {
+            (Some(cid), Some(arr)) => snapshot.feed.flight_plan_for_trip(cid, &dep, arr),
+            (Some(cid), None) => snapshot.feed.flight_plan_for(cid).filter(|fp| fp.departure == dep),
+            _ => None,
+        };
+        if let Some(fp) = plan
             && fp.assigned_transponder != "0000"
-            && fp.departure == dep
         {
             m.settings_dirty |= FlightNotes::fill(&mut m.settings.flight.squawk, &fp.assigned_transponder);
         }
@@ -592,6 +529,27 @@ fn autofill_flight(m: &mut Model) {
     if let Some(qnh) = m.state.network.metars.get(&dep).and_then(|t| clearance::qnh_from_metar(t)) {
         let f = &mut m.settings.flight;
         m.settings_dirty |= FlightNotes::track(&mut f.qnh, &mut f.qnh_auto, &qnh);
+    }
+}
+
+/// Keeps the arrival's ATIS letter, transition level and QNH current from the arrival ATIS and
+/// METAR. Typed values are respected (see `FlightNotes::track`).
+fn autofill_arrival(m: &mut Model) {
+    let Some(arr) = m.state.route.arrival.clone() else { return };
+    if let Some(snapshot) = m.state.network.snapshot.clone()
+        && let Some(atis) = stations::arrival_atis(&snapshot.stations, &arr)
+    {
+        let a = &mut m.settings.flight.arrival;
+        if let Some(code) = &atis.atis_code {
+            m.settings_dirty |= FlightNotes::track(&mut a.atis, &mut a.atis_auto, code);
+        }
+        if let Some(level) = clearance::transition_level_from_atis(&atis.text.join(" ")) {
+            m.settings_dirty |= FlightNotes::track(&mut a.transition_level, &mut a.transition_level_auto, &level);
+        }
+    }
+    if let Some(qnh) = m.state.network.metars.get(&arr).and_then(|t| clearance::qnh_from_metar(t)) {
+        let a = &mut m.settings.flight.arrival;
+        m.settings_dirty |= FlightNotes::track(&mut a.qnh, &mut a.qnh_auto, &qnh);
     }
 }
 
@@ -645,8 +603,8 @@ fn on_vatsim(m: &mut Model, update: Update, now: f32) {
         Update::Metars(metars) => {
             let notices = m.watcher.metars(&metars);
             if m.settings.vatsim.weather_alerts {
-                for notice in notices {
-                    m.state.push_message("VATSIM", notice, now);
+                for (notice, metar) in notices {
+                    m.state.push_message_with_detail("VATSIM", notice, metar, now);
                 }
             }
             m.state.network.metars.extend(metars);
@@ -654,6 +612,8 @@ fn on_vatsim(m: &mut Model, update: Update, now: f32) {
         }
         Update::Stats(cid, stats) => m.state.network.stats = Some((cid, stats)),
         Update::FeedError(error) => m.state.network.feed_error = error,
+        Update::Tracons(tracons) => m.state.network.tracons = Some(tracons),
+        Update::Sectors(sectors) => m.state.network.sectors = Some(sectors),
     }
 }
 
@@ -664,7 +624,11 @@ fn network_tick(m: &mut Model, worker: &Worker) {
     let horizon = radio_horizon_nm(m.state.altitude_ft);
     if let Some(snapshot) = m.state.network.snapshot.clone() {
         for radio in [&mut m.state.com1, &mut m.state.com2] {
-            radio.station = match stations::on_frequency(&snapshot.stations, radio.active_khz, position) {
+            let found = stations::on_frequency(&snapshot.stations, radio.active_khz, position);
+            // On 122.800 a far-off station sharing it (Hamburg Tower near Gatwick) isn't who you
+            // hear: that's UNICOM.
+            let found = found.filter(|s| radio.active_khz != UNICOM_KHZ || position.and_then(|p| s.distance_nm(p)).is_none_or(|d| d <= horizon));
+            radio.station = match found {
                 Some(s) => {
                     let distance_nm = position.and_then(|p| s.distance_nm(p));
                     Some(TunedStation {
@@ -694,10 +658,21 @@ fn network_tick(m: &mut Model, worker: &Worker) {
     if let (Some(snapshot), Some(vatspy), Some(boundaries), Some(pos)) =
         (&m.state.network.snapshot, &m.state.network.vatspy, &m.state.network.boundaries, position)
     {
-        let covering = coverage::covering(pos, m.state.on_ground, &snapshot.stations, vatspy, boundaries);
+        let covering = coverage::covering(pos, m.state.on_ground, &snapshot.stations, vatspy, boundaries, m.state.network.tracons.as_deref());
+        // In the air, whoever owns the airspace at your level comes first (stacked sectors).
+        let owner = m.state.network.sectors.as_ref().filter(|_| !m.state.on_ground).and_then(|s| s.owner(pos, m.state.altitude_ft / 100.0, &snapshot.stations));
+        let covering = coverage::owner_first(covering, owner);
         let tuned = |khz: i32| m.state.com1.active_khz == khz || m.state.com2.active_khz == khz;
         m.state.coverage_hint = match covering.first() {
-            Some(s) if !covering.iter().any(|c| tuned(c.frequency_khz)) => Some(CoverageHint::Tune { name: s.name.clone(), khz: s.frequency_khz }),
+            // Already on one of them, on its main frequency or any other it transmits on.
+            Some(s)
+                if !covering.iter().any(|c| {
+                    tuned(c.frequency_khz)
+                        || [m.state.com1.station.as_ref(), m.state.com2.station.as_ref()].into_iter().flatten().any(|t| t.callsign == c.callsign)
+                }) =>
+            {
+                Some(CoverageHint::Tune { name: s.display_name(), khz: s.frequency_khz })
+            }
             None if !m.state.on_ground && !tuned(UNICOM_KHZ) => Some(CoverageHint::Unicom),
             _ => None,
         };
@@ -705,7 +680,12 @@ fn network_tick(m: &mut Model, worker: &Worker) {
 
     // Route for "ATC along my route": SimBrief waypoints when we have them.
     let points: Vec<LatLon> = m.simbrief.as_ref().map(|p| p.fixes.iter().map(|(_, lat, lon)| LatLon { lat: *lat, lon: *lon }).collect()).unwrap_or_default();
-    let query = RouteQuery { departure: m.state.route.departure.clone(), arrival: m.state.route.arrival.clone(), points };
+    let query = RouteQuery {
+        departure: m.state.route.departure.clone(),
+        arrival: m.state.route.arrival.clone(),
+        points,
+        cruise_ft: m.simbrief.as_ref().and_then(|p| p.cruise_altitude_ft),
+    };
     if query != m.requested_route {
         worker.request(Request::SetRoute(query.clone()));
         m.requested_route = query;
@@ -745,7 +725,7 @@ fn submit_chat(text: &str, m: &mut Model, sim: &Sim) {
             m.system_message("Private messages and ATIS requests need a VATSIM connection. Use your pilot client for these until Sidetone is approved.", now)
         }
         Err(dot_command::ParseError::NotACommand) => {
-            m.state.messages.push(sidetone_core::state::Message { from: "You".into(), text: text.into(), received_at: now });
+            m.state.messages.push(sidetone_core::state::Message { from: "You".into(), text: text.into(), detail: None, received_at: now });
         }
         Err(e) => m.system_message(e.to_string(), now),
     }

@@ -33,6 +33,12 @@ pub enum Cursor {
     Default,
     Hidden,
     Arrow,
+    /// Horizontal resize (XPLM 4).
+    LeftRight,
+    /// Vertical resize (XPLM 4).
+    UpDown,
+    /// Resize both ways, for a window corner (XPLM 4 has no diagonal cursor).
+    FourArrows,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -287,6 +293,9 @@ unsafe extern "C" fn cursor(id: sys::XPLMWindowID, x: c_int, y: c_int, refcon: *
         Cursor::Default => sys::xplm_CursorDefault as _,
         Cursor::Hidden => sys::xplm_CursorHidden as _,
         Cursor::Arrow => sys::xplm_CursorArrow as _,
+        Cursor::LeftRight => sys::xplm_CursorLeftRight as _,
+        Cursor::UpDown => sys::xplm_CursorUpDown as _,
+        Cursor::FourArrows => sys::xplm_CursorFourArrows as _,
     })
 }
 

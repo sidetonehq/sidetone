@@ -1,6 +1,16 @@
 name: Release
 
-# Push a tag like v0.1.0 to build the universal plugin and publish a GitHub release.
+# Push a tag like v0.1.0 (or v0.1.0-rc.1 for a trial run) to build the universal plugin and
+# publish a GitHub release. See docs/RELEASING.md.
+#
+# Signing and notarization switch on once these repository secrets exist (until then the build
+# is ad-hoc signed and the release notes explain how to allow it):
+#   MACOS_CERT_P12           base64 of the "Developer ID Application" certificate + key (.p12)
+#   MACOS_CERT_PASSWORD      that .p12's password
+#   MACOS_SIGN_IDENTITY      e.g. "Developer ID Application: Your Name (TEAMID)"
+#   APPLE_ID                 the Apple Developer account's email
+#   APPLE_TEAM_ID            the team ID
+#   APPLE_APP_PASSWORD       an app-specific password for that Apple ID
 on:
   push:
     tags: ["v*"]
@@ -11,6 +21,8 @@ permissions:
 jobs:
   release:
     runs-on: macos-14
+    env:
+      SIGNING: ${{ secrets.MACOS_CERT_P12 != '' }}
     steps:
       - uses: actions/checkout@v7
       - name: Rust toolchain (arm64 + x86_64)
@@ -18,26 +30,103 @@ jobs:
           rustup toolchain install stable --profile minimal
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
+
+      - name: Check the tag matches the version and the changelog
+        run: |
+          version="$(cargo xtask version)"
+          tag="${GITHUB_REF_NAME#v}"
+          case "$tag" in
+            "$version" | "$version"-*) ;;
+            *) echo "::error::Tag $GITHUB_REF_NAME doesn't match the workspace version $version"; exit 1 ;;
+          esac
+          heading="$(grep -m1 "^## $version" CHANGELOG.md || true)"
+          if [ -z "$heading" ]; then
+            echo "::error::CHANGELOG.md has no '## $version' section"; exit 1
+          fi
+          # A final release needs its date; a trial (-rc) may still say "unreleased".
+          if [ "$tag" = "$version" ] && echo "$heading" | grep -qi unreleased; then
+            echo "::error::Set the release date in CHANGELOG.md ('$heading') before tagging"; exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
       - name: Test
         run: cargo test --workspace
+
+      - name: Import the signing certificate
+        if: env.SIGNING == 'true'
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(uuidgen)"
+          echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/cert.p12" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain" login.keychain-db
+          rm "$RUNNER_TEMP/cert.p12"
+          echo "SIDETONE_SIGN_IDENTITY=$MACOS_SIGN_IDENTITY" >> "$GITHUB_ENV"
+
       - name: Bundle universal plugin
         run: cargo xtask bundle
+
       - name: Package
         run: |
           lipo -info dist/Sidetone/mac_x64/Sidetone.xpl | grep -q "x86_64 arm64"
-          cd dist && zip -r "Sidetone-${GITHUB_REF_NAME}-macOS.zip" Sidetone
+          cd dist
+          ditto -c -k --keepParent Sidetone "Sidetone-${GITHUB_REF_NAME}-macOS.zip"
+
+      - name: Notarize
+        if: env.SIGNING == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        # A bare plugin can't be stapled; macOS checks the notarization online on first load.
+        run: |
+          xcrun notarytool submit "dist/Sidetone-${GITHUB_REF_NAME}-macOS.zip" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
+
+      - name: Checksum
+        run: |
+          cd dist
+          shasum -a 256 "Sidetone-${GITHUB_REF_NAME}-macOS.zip" > "Sidetone-${GITHUB_REF_NAME}-macOS.zip.sha256"
+
+      - name: Release notes
+        run: |
+          {
+            echo "Preview build for X-Plane 12 on macOS (Apple Silicon and Intel)."
+            echo
+            echo "**Install:** unzip and copy the \`Sidetone\` folder into \`X-Plane 12/Resources/plugins/\`."
+            if [ "$SIGNING" != "true" ]; then
+              echo
+              echo "**Not yet notarized:** if macOS blocks the plugin, open System Settings → Privacy & Security and choose \"Allow Anyway\", or run"
+              echo "\`xattr -dr com.apple.quarantine \"X-Plane 12/Resources/plugins/Sidetone\"\`."
+            fi
+            echo
+            echo "Sidetone uses VATSIM's public data only and does not connect to the network as a pilot client yet."
+            echo
+            echo "## What's in $VERSION"
+            echo
+            # This version's section of the changelog, without its heading.
+            awk -v heading="## $VERSION" 'index($0, heading) == 1 { found = 1; next } found && /^## / { exit } found' CHANGELOG.md
+          } > "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md"
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
+        # Trial tags (-rc) and every 0.x version are pre-releases.
         run: |
-          gh release create "$GITHUB_REF_NAME" "dist/Sidetone-${GITHUB_REF_NAME}-macOS.zip" \
-            --title "Sidetone $GITHUB_REF_NAME" --prerelease --notes-file - <<'NOTES'
-          Preview build for X-Plane 12 on macOS (Apple Silicon and Intel).
-
-          **Install:** unzip and copy the `Sidetone` folder into `X-Plane 12/Resources/plugins/`.
-
-          **Not yet notarized:** if macOS blocks the plugin, open System Settings → Privacy & Security and choose "Allow Anyway", or run
-          `xattr -dr com.apple.quarantine "X-Plane 12/Resources/plugins/Sidetone"`.
-
-          Sidetone uses VATSIM's public data only and does not connect to the network as a pilot client yet. See the README and CHANGELOG for details.
-          NOTES
+          prerelease=""
+          case "$GITHUB_REF_NAME" in
+            v0.* | *-*) prerelease="--prerelease" ;;
+          esac
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/Sidetone-${GITHUB_REF_NAME}-macOS.zip" \
+            "dist/Sidetone-${GITHUB_REF_NAME}-macOS.zip.sha256" \
+            --title "Sidetone $GITHUB_REF_NAME" $prerelease --notes-file "$RUNNER_TEMP/notes.md"

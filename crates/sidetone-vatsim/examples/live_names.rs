@@ -13,7 +13,7 @@ fn main() {
         if let Update::Snapshot(snap) = update {
             println!("{} stations", snap.stations.len());
             for s in &snap.stations {
-                println!("{:<14} {:>8}  {}", s.callsign, sidetone_vatsim::freq::channel_to_hz(s.frequency_khz) as f64 / 1e6, s.name);
+                println!("{:<14} {:>8}  {}", s.callsign, sidetone_vatsim::freq::channel_to_hz(s.frequency_khz) as f64 / 1e6, s.display_name());
             }
             break;
         }

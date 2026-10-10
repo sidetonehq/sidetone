@@ -61,6 +61,10 @@ pub struct Network {
     pub metars: HashMap<String, String>,
     pub stats: Option<(u32, MemberStats)>,
     pub boundaries: Option<Arc<Boundaries>>,
+    /// Approach and departure airspace shapes, for who covers you.
+    pub tracons: Option<Arc<sidetone_vatsim::tracon::Tracons>>,
+    /// Sector levels and owners (VATGlasses), for the areas you're in or flying through.
+    pub sectors: Option<Arc<sidetone_vatsim::sectors::Sectors>>,
     pub events: Arc<Vec<Event>>,
     pub route_atc: Arc<Vec<RouteLeg>>,
 }
@@ -86,7 +90,7 @@ pub struct Perf {
 pub struct Route {
     pub departure: Option<String>,
     pub arrival: Option<String>,
-    /// Where the airports came from, for the UI ("VATSIM flight plan", "manual").
+    /// Where the airports came from, for the UI ("SimBrief", "VATSIM flight plan").
     pub source: &'static str,
 }
 
@@ -115,6 +119,8 @@ impl AppState {
 pub struct Message {
     pub from: String,
     pub text: String,
+    /// Long text behind a short notice (a full METAR), shown on hover.
+    pub detail: Option<String>,
     /// `elapsed_time()` when received, for fading the panel ticker.
     pub received_at: f32,
 }
@@ -157,7 +163,13 @@ impl AppState {
     }
 
     pub fn push_message(&mut self, from: impl Into<String>, text: impl Into<String>, now: f32) {
-        self.messages.push(Message { from: from.into(), text: text.into(), received_at: now });
+        self.messages.push(Message { from: from.into(), text: text.into(), detail: None, received_at: now });
+        self.unread += 1;
+    }
+
+    /// A short notice with the long text behind it ("New METAR EGKK" + the METAR).
+    pub fn push_message_with_detail(&mut self, from: impl Into<String>, text: impl Into<String>, detail: impl Into<String>, now: f32) {
+        self.messages.push(Message { from: from.into(), text: text.into(), detail: Some(detail.into()), received_at: now });
         self.unread += 1;
     }
 

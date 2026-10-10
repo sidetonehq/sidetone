@@ -3,7 +3,7 @@ name = "sidetone-services"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Non-VATSIM services: SimBrief import, Hoppie ACARS/CPDLC, macOS Keychain"
+description = "Non-VATSIM services: SimBrief import, macOS Keychain"
 
 [dependencies]
 serde.workspace = true

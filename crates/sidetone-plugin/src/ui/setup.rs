@@ -16,27 +16,19 @@ pub fn build(ui: &Ui, m: &mut Model) {
         cid: m.settings.vatsim.cid.is_some(),
         ptt_tested: m.settings.setup.ptt_tested,
         simbrief: m.simbrief_user_saved,
-        hoppie: m.hoppie_ready,
         xpilot_found: m.xpilot.detected(),
         xpilot_on: m.settings.integrations.xpilot_companion,
     });
     let done = items.iter().filter(|i| i.done).count();
     let status = if ready(&items) { "ready to fly".to_string() } else { format!("{done} of {} done", items.len()) };
 
-    ui.spacing();
-    ui.spacing();
-    ui.text_disabled(format!("GET SET UP · {status}"));
-    let style = ui.clone_style();
-    let hide_w = ui.calc_text_size("Hide")[0] + style.frame_padding()[0] * 2.0;
-    ui.same_line_with_pos(ui.cursor_pos()[0] + ui.content_region_avail()[0] - hide_w);
-    if ui.small_button("Hide") {
+    if super::card_title(ui, &format!("GET SET UP · {status}"), Some("Hide")) {
         m.settings.setup.dismissed = true;
         m.actions.push(Action::SaveSettings);
     }
-    ui.separator();
 
     let unit = ui.current_font_size() / theme::FONT_SIZE;
-    let col = 150.0 * unit;
+    let col = if super::narrow(ui) { 110.0 * unit } else { 150.0 * unit };
     for item in items {
         let _id = ui.push_id(item.step as i32);
         row(ui, m, item, col);
@@ -48,12 +40,11 @@ fn row(ui: &Ui, m: &mut Model, item: Item, col: f32) {
         Step::Cid => "VATSIM CID",
         Step::PushToTalk => "Push-to-talk",
         Step::Simbrief => "SimBrief",
-        Step::Hoppie => "Hoppie CPDLC",
         Step::Xpilot => "xPilot",
     };
     ui.align_text_to_frame_padding();
     if item.done {
-        ui.text_colored(theme::OK, "✓");
+        ui.text_colored(theme::OK, theme::icon::CHECK);
     } else {
         ui.text_disabled("○");
     }
@@ -62,6 +53,8 @@ fn row(ui: &Ui, m: &mut Model, item: Item, col: f32) {
     ui.same_line_with_pos(col);
     // A group keeps wrapped lines aligned with the column instead of the row start.
     let _group = ui.begin_group();
+    // Help text wraps under the step, aligned with it, rather than running off a narrow window.
+    let _wrap = ui.push_text_wrap_pos(0.0);
 
     match (item.step, item.done) {
         (Step::Cid, true) => {
@@ -71,7 +64,7 @@ fn row(ui: &Ui, m: &mut Model, item: Item, col: f32) {
             ui.text_disabled(if m.cid_detected { "found automatically" } else { "change it in Settings" });
         }
         (Step::Cid, false) => {
-            cid_field(ui, m, "##setup_cid");
+            cid_field(ui, m, "##setup_cid", 120.0 * ui.current_font_size() / theme::FONT_SIZE);
             ui.same_line();
             ui.text_disabled("Found automatically once you connect or import SimBrief");
         }
@@ -80,20 +73,15 @@ fn row(ui: &Ui, m: &mut Model, item: Item, col: f32) {
         (Step::PushToTalk, false) => {
             ui.text_wrapped("Bind \"Sidetone: push-to-talk (hold)\" in X-Plane's Keyboard or Joystick settings (X-Plane's Contact ATC key works too), then press it to test.");
         }
-        (Step::Simbrief, true) | (Step::Hoppie, true) => ui.text_disabled("Saved in your Keychain"),
+        (Step::Simbrief, true) => ui.text_disabled("Saved in your Keychain"),
         (Step::Simbrief, false) => {
-            secret_field(ui, m, Secret::SimbriefUsername, "##setup_simbrief", false, false);
+            secret_field(ui, m, Secret::SimbriefUsername, "##setup_simbrief", false, 160.0 * ui.current_font_size() / theme::FONT_SIZE);
             ui.same_line();
             ui.text_disabled("Optional · imports your plan and airports");
         }
-        (Step::Hoppie, false) => {
-            secret_field(ui, m, Secret::HoppieLogon, "##setup_hoppie", false, true);
-            ui.same_line();
-            ui.text_disabled("Optional · free at hoppie.nl/acars");
-        }
         (Step::Xpilot, true) => ui.text_disabled("Companion mode on"),
         (Step::Xpilot, false) => {
-            if ui.small_button("Turn on companion mode") {
+            if super::pill(ui, "Turn on companion mode") {
                 m.settings.integrations.xpilot_companion = true;
                 m.actions.push(Action::SaveSettings);
             }

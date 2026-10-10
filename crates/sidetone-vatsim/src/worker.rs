@@ -9,6 +9,7 @@ use crate::events::Event;
 use crate::feed::DataFeed;
 use crate::geo::LatLon;
 use crate::http::{Client, MemberStats};
+use crate::sectors::{self, Sectors};
 use crate::stations::{self, Station};
 use crate::vatspy::VatSpy;
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, unbounded};
@@ -45,6 +46,10 @@ pub enum Update {
     RouteAtc(Arc<Vec<RouteLeg>>),
     /// The feed could not be fetched; `None` when it recovers.
     FeedError(Option<String>),
+    /// Approach and departure airspace shapes (SimAware TRACON Project).
+    Tracons(Arc<crate::tracon::Tracons>),
+    /// Sector floors, ceilings and owners for the areas you're in or flying through (VATGlasses).
+    Sectors(Arc<Sectors>),
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -53,6 +58,8 @@ pub struct RouteQuery {
     pub arrival: Option<String>,
     /// Route geometry; when empty, a straight line between the airports is used.
     pub points: Vec<LatLon>,
+    /// Planned cruise altitude, for who owns the airspace at each point of the route.
+    pub cruise_ft: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -104,6 +111,11 @@ struct State {
     cache_dir: PathBuf,
     vatspy: Option<Arc<VatSpy>>,
     boundaries: Option<Arc<Boundaries>>,
+    tracons: Option<Arc<crate::tracon::Tracons>>,
+    /// VATGlasses: the list of its files, and those loaded so far.
+    sectors: Sectors,
+    sector_listing: Option<Vec<String>>,
+    sector_files: std::collections::HashSet<String>,
     last_snapshot: Option<Arc<Snapshot>>,
     route: RouteQuery,
     airports: Vec<String>,
@@ -123,6 +135,10 @@ fn run(rx: Receiver<Message>, cache_dir: PathBuf, on_update: impl Fn(Update)) {
         cache_dir,
         vatspy: None,
         boundaries: None,
+        tracons: None,
+        sectors: Sectors::default(),
+        sector_listing: None,
+        sector_files: Default::default(),
         last_snapshot: None,
         route: RouteQuery::default(),
         airports: Vec::new(),
@@ -144,6 +160,12 @@ fn run(rx: Receiver<Message>, cache_dir: PathBuf, on_update: impl Fn(Update)) {
         let b = Arc::new(b);
         s.boundaries = Some(b.clone());
         on_update(Update::Boundaries(b));
+    }
+    if let Some(t) = load_tracons(&s.client, &s.cache_dir) {
+        log::info!("{} approach and departure airspaces (SimAware TRACON Project)", t.items.len());
+        let t = Arc::new(t);
+        s.tracons = Some(t.clone());
+        on_update(Update::Tracons(t));
     }
 
     loop {
@@ -173,12 +195,15 @@ fn run(rx: Receiver<Message>, cache_dir: PathBuf, on_update: impl Fn(Update)) {
                 if list != s.airports {
                     s.airports = list;
                     s.next_metar = Instant::now();
+                    load_sectors(&mut s, &on_update);
                 }
             }
             Ok(Message::Request(Request::SetRoute(route))) => {
                 if route != s.route {
                     s.route = route;
-                    publish_route_atc(&s, &on_update);
+                    if !load_sectors(&mut s, &on_update) {
+                        publish_route_atc(&s, &on_update);
+                    }
                 }
             }
             Ok(Message::Request(Request::SetCid(cid))) => {
@@ -235,7 +260,9 @@ fn publish_route_atc(s: &State, on_update: &impl Fn(Update)) {
         points.extend(pos(&s.route.departure));
         points.extend(pos(&s.route.arrival));
     }
-    let legs = coverage::along_route(s.route.departure.as_deref(), s.route.arrival.as_deref(), &points, &snapshot.stations, vatspy, boundaries);
+    let sectors = (!s.sectors.is_empty()).then_some(&s.sectors);
+    let profile = coverage::Profile { tracons: s.tracons.as_deref(), sectors, cruise_ft: s.route.cruise_ft };
+    let legs = coverage::along_route(s.route.departure.as_deref(), s.route.arrival.as_deref(), &points, &snapshot.stations, vatspy, boundaries, profile);
     on_update(Update::RouteAtc(Arc::new(legs)));
 }
 
@@ -275,8 +302,67 @@ fn cached(name: &str, cache_dir: &std::path::Path, download: impl FnOnce() -> cr
     std::fs::read_to_string(&path).ok()
 }
 
+/// Loads the VATGlasses files for the airports watched and the FIRs along the route (cached a
+/// week). Sends the sectors and refreshes the route's ATC when any were added; false if none.
+fn load_sectors(s: &mut State, on_update: &impl Fn(Update)) -> bool {
+    let mut icaos: Vec<String> = s.airports.clone();
+    icaos.extend(s.route.departure.iter().chain(&s.route.arrival).cloned());
+    if let Some(b) = &s.boundaries {
+        // The route's points, or without them a straight line between the airports.
+        let mut points = s.route.points.clone();
+        let end = |id: &Option<String>| id.as_deref().and_then(|i| s.vatspy.as_ref()?.airport(i)).map(|a| a.position);
+        if points.is_empty()
+            && let (Some(a), Some(z)) = (end(&s.route.departure), end(&s.route.arrival))
+        {
+            points = (0..=20).map(|i| f64::from(i) / 20.0).map(|t| LatLon { lat: a.lat + (z.lat - a.lat) * t, lon: a.lon + (z.lon - a.lon) * t }).collect();
+        }
+        for p in &points {
+            icaos.extend(b.containing(*p).map(|b| b.id.split('-').next().unwrap_or(&b.id).to_string()));
+        }
+    }
+    icaos.sort();
+    icaos.dedup();
+    if icaos.is_empty() {
+        return false;
+    }
+    if s.sector_listing.is_none() {
+        let client = &s.client;
+        s.sector_listing = cached("vatglasses-files.txt", &s.cache_dir, || client.vatglasses_listing()).map(|t| t.lines().map(String::from).collect());
+    }
+    let Some(listing) = &s.sector_listing else { return false };
+    let mut added = 0;
+    for path in sectors::files_for(listing, &icaos) {
+        if s.sector_files.contains(&path) {
+            continue;
+        }
+        // Tried once per run, loaded or not: no hammering GitHub when it fails.
+        s.sector_files.insert(path.clone());
+        let client = &s.client;
+        let Some(text) = cached(&format!("vatglasses-{}.json", sectors::file_name(&path).replace('/', "_")), &s.cache_dir, || client.vatglasses_file(&path))
+        else {
+            continue;
+        };
+        match s.sectors.add(&sectors::file_name(&path), &text) {
+            Ok(()) => added += 1,
+            Err(e) => log::warn!("{e}"),
+        }
+    }
+    if added == 0 {
+        return false;
+    }
+    log::info!("Sector levels and owners for {} more area(s) (VATGlasses)", added);
+    on_update(Update::Sectors(Arc::new(s.sectors.clone())));
+    publish_route_atc(s, on_update);
+    true
+}
+
 fn load_vatspy(client: &Client, cache_dir: &std::path::Path) -> Option<VatSpy> {
     cached("VATSpy.dat", cache_dir, || client.vatspy()).map(|t| VatSpy::parse(&t))
+}
+
+fn load_tracons(client: &Client, cache_dir: &std::path::Path) -> Option<crate::tracon::Tracons> {
+    let text = cached("TRACONBoundaries.geojson", cache_dir, || client.tracons())?;
+    crate::tracon::Tracons::parse(&text).map_err(|e| log::warn!("{e}")).ok()
 }
 
 fn load_boundaries(client: &Client, cache_dir: &std::path::Path) -> Option<Boundaries> {

@@ -9,7 +9,7 @@ pub enum Event {
     SimLog(String),
     /// Fresh public VATSIM data from the worker thread.
     Vatsim(sidetone_vatsim::worker::Update),
-    /// Hoppie / SimBrief results from the services worker.
+    /// SimBrief results from the services worker.
     Services(sidetone_services::worker::Update),
 }
 

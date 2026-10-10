@@ -38,7 +38,7 @@ struct Properties {
 
 #[derive(Deserialize)]
 #[serde(tag = "type")]
-enum Geometry {
+pub(crate) enum Geometry {
     Polygon {
         coordinates: Vec<Vec<Vec<f64>>>,
     },
@@ -53,22 +53,29 @@ fn ring(points: Vec<Vec<f64>>) -> Vec<(f64, f64)> {
     points.into_iter().filter(|p| p.len() >= 2).map(|p| (p[0], p[1])).collect()
 }
 
+impl Boundary {
+    /// A boundary from a GeoJSON geometry; `None` for anything that isn't a (multi)polygon.
+    pub(crate) fn from_geometry(id: String, oceanic: bool, geometry: Geometry) -> Option<Boundary> {
+        let polygons: Vec<Vec<Vec<(f64, f64)>>> = match geometry {
+            Geometry::Polygon { coordinates } => vec![coordinates.into_iter().map(ring).collect()],
+            Geometry::MultiPolygon { coordinates } => coordinates.into_iter().map(|p| p.into_iter().map(ring).collect()).collect(),
+            Geometry::Other => return None,
+        };
+        let mut bbox = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+        for &(lon, lat) in polygons.iter().filter_map(|p| p.first()).flatten() {
+            bbox = (bbox.0.min(lat), bbox.1.min(lon), bbox.2.max(lat), bbox.3.max(lon));
+        }
+        Some(Boundary { id, oceanic, bbox, polygons })
+    }
+}
+
 impl Boundaries {
     pub fn parse(json: &str) -> Result<Boundaries, String> {
         let c: Collection = serde_json::from_str(json).map_err(|e| format!("boundaries: {e}"))?;
         let mut items = Vec::with_capacity(c.features.len());
         for f in c.features {
-            let polygons: Vec<Vec<Vec<(f64, f64)>>> = match f.geometry {
-                Geometry::Polygon { coordinates } => vec![coordinates.into_iter().map(ring).collect()],
-                Geometry::MultiPolygon { coordinates } => coordinates.into_iter().map(|p| p.into_iter().map(ring).collect()).collect(),
-                Geometry::Other => continue,
-            };
-            let mut bbox = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
-            for &(lon, lat) in polygons.iter().filter_map(|p| p.first()).flatten() {
-                bbox = (bbox.0.min(lat), bbox.1.min(lon), bbox.2.max(lat), bbox.3.max(lon));
-            }
             let oceanic = matches!(&f.properties.oceanic, serde_json::Value::String(s) if s == "1") || f.properties.oceanic == serde_json::json!(1);
-            items.push(Boundary { id: f.properties.id, oceanic, bbox, polygons });
+            items.extend(Boundary::from_geometry(f.properties.id, oceanic, f.geometry));
         }
         Ok(Boundaries { items })
     }
@@ -98,7 +105,7 @@ impl Boundary {
 }
 
 /// Ray casting in lon/lat space (fine for FIR-sized shapes away from the antimeridian).
-fn in_ring(ring: &[(f64, f64)], p: LatLon) -> bool {
+pub(crate) fn in_ring(ring: &[(f64, f64)], p: LatLon) -> bool {
     let (x, y) = (p.lon, p.lat);
     let mut inside = false;
     let mut j = ring.len().wrapping_sub(1);

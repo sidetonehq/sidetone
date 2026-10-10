@@ -7,8 +7,8 @@
 - **Public VATSIM data:** spoken station names for tuned frequencies, online ATC list with
   one-click tuning, ATIS/METAR watch with alerts, ATC along the route, coverage hint, events,
   pilot hours.
-- **Planning & datalink:** SimBrief import, clearance & notes card with auto-fill, Hoppie
-  CPDLC and pre-departure clearances.
+- **Planning:** SimBrief import, a one-page flight summary, who to call for your clearance, and
+  clearance entry with auto-fill.
 - **Polish:** keyboard focus hand-back and clipboard, UI scale, frame caching.
 
 ## Next

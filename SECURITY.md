@@ -5,9 +5,9 @@ the repository's Security tab, rather than opening a public issue.
 
 Particularly relevant areas:
 
-- Handling of secrets (Hoppie logon code, SimBrief username) and the macOS Keychain.
-- Anything that could crash or destabilise X-Plane from network input (feeds, Hoppie
-  messages, SimBrief data).
+- Handling of secrets (SimBrief Pilot ID) and the macOS Keychain.
+- Anything that could crash or destabilise X-Plane from network input (VATSIM feeds, METARs,
+  SimBrief data).
 - Anything that could cause Sidetone to send data to a network without the pilot's action.
 
 We'll acknowledge reports as soon as we can and credit reporters who wish to be named.

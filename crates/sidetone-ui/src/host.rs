@@ -13,7 +13,9 @@ use std::rc::Rc;
 pub enum WindowKind {
     /// Undecorated overlay; dragged by its background.
     Panel,
-    /// X-Plane-decorated floating window (title bar, resize) that can pop out.
+    /// A floating window that draws its own frame (so it can sit flush under the panel): X-Plane
+    /// handles resizing at its edges, the UI says how tall its draggable header is, and it can
+    /// pop out into an OS window.
     Floating { title: String },
 }
 
@@ -22,6 +24,7 @@ pub enum WindowKind {
 struct Requests {
     close: bool,
     pop_out: Option<bool>,
+    drag_height: Option<f32>,
 }
 
 /// What a UI build callback receives each frame.
@@ -44,6 +47,11 @@ impl HostFrame<'_> {
     pub fn set_popped_out(&mut self, popped_out: bool) {
         self.requests.pop_out = Some(popped_out);
     }
+
+    /// The top `height` (ImGui units) of a floating window drags it, outside any widget.
+    pub fn set_drag_height(&mut self, height: f32) {
+        self.requests.drag_height = Some(height);
+    }
 }
 
 type BuildFn = Box<dyn FnMut(&mut HostFrame)>;
@@ -65,6 +73,30 @@ struct Shared {
     user_scale: f32,
     /// Smoothed CPU time this window costs per sim frame, in milliseconds.
     cpu_ms: f32,
+    /// A floating window whose width the owner controls (attached under the panel): only its
+    /// bottom edge resizes.
+    width_locked: bool,
+    /// Narrowest a floating window can be resized to, in boxels (the owner may raise it).
+    min_width: i32,
+}
+
+/// Smallest a floating window can be resized to, in boxels (fits the narrow sidebar layout).
+/// The owner can raise the width with `set_min_width`.
+const MIN_FLOATING_SIZE: (i32, i32) = (320, 260);
+
+/// How close to a floating window's left, right or bottom edge (boxels) a press starts a resize.
+const RESIZE_MARGIN: i32 = 8;
+
+/// Size of the square in each bottom corner (boxels) that resizes both ways. It covers the grip
+/// drawn in the bottom-right, so grabbing the grip anywhere resizes width and height.
+const RESIZE_CORNER: i32 = 18;
+
+/// Which edges a resize drag moves.
+#[derive(Clone, Copy)]
+struct Edges {
+    left: bool,
+    right: bool,
+    bottom: bool,
 }
 
 /// Rebuild the UI at most this often when nobody is interacting with it; in between, the
@@ -104,12 +136,20 @@ struct Host {
     frame: u64,
     any_item_hovered: bool,
     drag_from: Option<(i32, i32, Rect)>,
+    /// A resize drag in progress: where it started, the starting geometry and the edges it moves.
+    resize_from: Option<(i32, i32, Rect, Edges)>,
     shared: Rc<RefCell<Shared>>,
     user_scale: f32,
     last_build: f32,
     last_size: (i32, i32),
     wants_text: bool,
     last_key_time: f32,
+    /// Height of a floating window's draggable header, in ImGui units.
+    drag_height: f32,
+    /// Last seen (left, top, right, bottom), and when it last changed, so a move or resize is
+    /// reported once it settles rather than on every frame of the drag.
+    last_geometry: (i32, i32, i32, i32),
+    geometry_changed_at: Option<f32>,
 }
 
 /// An X-Plane window rendering Dear ImGui.
@@ -124,12 +164,19 @@ impl ImguiWindow {
         let _ = context.set_ini_filename(None::<String>);
         context.set_clipboard_backend(SystemClipboard);
         let _ = context.set_platform_name(Some("sidetone-xplm"));
+        // ImGui's red "conflicting ID" overlay is a developer aid; never show it to pilots.
+        context.io_mut().set_config_debug_highlight_id_conflicts(cfg!(debug_assertions));
+        // A layout mistake ImGui can recover from (e.g. a window ending right after
+        // SetCursorPos) must never abort X-Plane: recover and carry on. Its error tooltip is a
+        // developer aid too, so only in debug builds.
+        context.io_mut().set_config_error_recovery_enable_assert(false);
+        context.io_mut().set_config_error_recovery_enable_tooltip(cfg!(debug_assertions));
         let fonts = theme::load_fonts(&context);
         let pristine_style = context.style().clone();
         let renderer = Renderer::new(&mut context);
         let context = context.suspend().unwrap_or_else(|e| panic!("could not suspend ImGui context: {e}"));
 
-        let shared = Rc::new(RefCell::new(Shared { moved: false, user_scale: 1.0, cpu_ms: 0.0 }));
+        let shared = Rc::new(RefCell::new(Shared { moved: false, user_scale: 1.0, cpu_ms: 0.0, width_locked: false, min_width: MIN_FLOATING_SIZE.0 }));
         let host = Host {
             context: Some(context),
             renderer: Some(renderer),
@@ -150,15 +197,19 @@ impl ImguiWindow {
             last_size: (0, 0),
             wants_text: false,
             last_key_time: 0.0,
+            drag_height: 0.0,
+            resize_from: None,
+            last_geometry: (0, 0, 0, 0),
+            geometry_changed_at: None,
         };
         let (decoration, layer) = match &kind {
             WindowKind::Panel => (Decoration::None, Layer::FloatingWindows),
-            WindowKind::Floating { .. } => (Decoration::RoundRectangle, Layer::FloatingWindows),
+            WindowKind::Floating { .. } => (Decoration::SelfDecoratedResizable, Layer::FloatingWindows),
         };
         let window = Window::new(WindowOptions { rect, visible, decoration, layer }, host);
         if let WindowKind::Floating { title } = &kind {
             window.handle().set_title(title);
-            window.handle().set_resizing_limits(600, 360, 4000, 4000);
+            window.handle().set_resizing_limits(MIN_FLOATING_SIZE.0, MIN_FLOATING_SIZE.1, 4000, 4000);
         }
         ImguiWindow { window, shared }
     }
@@ -191,6 +242,25 @@ impl ImguiWindow {
         self.shared.borrow().cpu_ms
     }
 
+    /// Lets only the bottom edge resize (the owner sets the width), or all edges again.
+    pub fn set_width_locked(&self, locked: bool) {
+        self.shared.borrow_mut().width_locked = locked;
+    }
+
+    /// Sets the narrowest the pilot can resize this window to (boxels, never below the default),
+    /// and widens it now if it's narrower.
+    pub fn set_min_width(&self, width: i32) {
+        let width = width.max(MIN_FLOATING_SIZE.0);
+        if std::mem::replace(&mut self.shared.borrow_mut().min_width, width) != width {
+            self.handle().set_resizing_limits(width, MIN_FLOATING_SIZE.1, 4000, 4000);
+        }
+        let w = self.handle();
+        let g = w.geometry();
+        if !w.is_popped_out() && g.width() < width {
+            w.set_geometry(Rect { right: g.left + width, ..g });
+        }
+    }
+
     /// Returns true once after the user moved or resized the window.
     pub fn take_moved(&self) -> bool {
         std::mem::take(&mut self.shared.borrow_mut().moved)
@@ -219,6 +289,15 @@ impl Host {
         let user_scale = self.shared.borrow().user_scale;
 
         let now = elapsed_time();
+        // Report a move or resize (by the pilot, X-Plane's edge handles or the owner) once settled.
+        let g = (geometry.left, geometry.top, geometry.right, geometry.bottom);
+        if g != self.last_geometry {
+            self.last_geometry = g;
+            self.geometry_changed_at = Some(now);
+        } else if self.geometry_changed_at.is_some_and(|t| now - t > 0.5) && self.drag_from.is_none() && self.resize_from.is_none() {
+            self.geometry_changed_at = None;
+            self.shared.borrow_mut().moved = true;
+        }
         let hovered = self.hover_frame + 1 >= self.frame || self.drag_from.is_some();
         let popped_out = window.is_popped_out();
         let has_focus = window.has_keyboard_focus();
@@ -272,6 +351,7 @@ impl Host {
         let build = &mut self.build;
         let fonts = self.fonts;
         let is_panel = matches!(self.kind, WindowKind::Panel);
+        let resizable = !is_panel && !popped_out;
         let mut requests = Requests::default();
         let mut any_item_hovered = false;
         let mut wants_text = false;
@@ -312,10 +392,20 @@ impl Host {
                 if is_panel {
                     flags |= WindowFlags::NO_SCROLLBAR | WindowFlags::NO_SCROLL_WITH_MOUSE | WindowFlags::NO_BACKGROUND;
                 }
-                ui.window("##root").position([0.0, 0.0], Condition::Always).size([w, h], Condition::Always).flags(flags).build(|| {
+                // A resizable window keeps a strip on the right for the resize edge, so the
+                // scrollbar isn't under it. The strip is filled with the same background.
+                let gutter = if resizable { RESIZE_MARGIN as f32 * scale } else { 0.0 };
+                if resizable {
+                    let rounding = ui.clone_style().window_rounding();
+                    ui.get_background_draw_list().add_rect([0.0, 0.0], [w, h], theme::SURFACE).filled(true).rounding(rounding).build();
+                }
+                ui.window("##root").position([0.0, 0.0], Condition::Always).size([w - gutter, h], Condition::Always).flags(flags).build(|| {
                     let mut host_frame = HostFrame { ui, hovered, popped_out, now, fonts, requests: &mut requests };
                     // Contain UI panics here so the ImGui frame still ends cleanly.
                     sidetone_xplm::guard("ui build", (), || build(&mut host_frame));
+                    if resizable {
+                        resize_grip(ui, [w, h], scale);
+                    }
                     any_item_hovered = ui.is_any_item_hovered() || ui.is_any_item_active();
                 });
                 wants_text = ui.io().want_text_input();
@@ -344,6 +434,9 @@ impl Host {
         } else if !wants_text && window.has_keyboard_focus() {
             window.release_keyboard_focus();
         }
+        if let Some(height) = requests.drag_height {
+            self.drag_height = height;
+        }
         if let Some(pop) = requests.pop_out {
             window.set_positioning(if pop { Positioning::PopOut } else { Positioning::Free });
         }
@@ -361,6 +454,25 @@ impl Host {
         }
         let raw = viewport_width as f32 / boxels as f32;
         ((raw * 4.0).round() / 4.0).clamp(1.0, 3.0)
+    }
+
+    /// The edges a press at (x, y) would resize, for a floating window that isn't popped out
+    /// (the OS resizes popped-out windows). X-Plane's own edge handles don't reach
+    /// self-decorated windows reliably, so Sidetone resizes them itself.
+    fn resize_edges(&self, window: WindowRef, x: i32, y: i32) -> Option<Edges> {
+        if matches!(self.kind, WindowKind::Panel) || window.is_popped_out() {
+            return None;
+        }
+        let g = window.geometry();
+        let width_locked = self.shared.borrow().width_locked;
+        let (from_left, from_right, from_bottom) = (x - g.left, g.right - x, y - g.bottom);
+        let in_corner = from_bottom < RESIZE_CORNER && (from_left < RESIZE_CORNER || from_right < RESIZE_CORNER);
+        let edges = Edges {
+            left: !width_locked && (from_left < RESIZE_MARGIN || (in_corner && from_left < RESIZE_CORNER)),
+            right: !width_locked && (from_right < RESIZE_MARGIN || (in_corner && from_right < RESIZE_CORNER)),
+            bottom: from_bottom < RESIZE_MARGIN || in_corner,
+        };
+        (edges.left || edges.right || edges.bottom).then_some(edges)
     }
 
     fn to_local(&self, window: WindowRef, x: i32, y: i32) -> (f32, f32) {
@@ -384,7 +496,13 @@ impl WindowHandler for Host {
         let is_panel = matches!(self.kind, WindowKind::Panel);
         match status {
             MouseStatus::Down => {
-                if is_panel && !self.any_item_hovered {
+                if let Some(edges) = self.resize_edges(window, x, y) {
+                    self.resize_from = Some((x, y, window.geometry(), edges));
+                    return true;
+                }
+                // The panel drags by any background; a floating window by its header only.
+                let draggable = is_panel || (ly < self.drag_height && !window.is_popped_out());
+                if draggable && !self.any_item_hovered {
                     self.drag_from = Some((x, y, window.geometry()));
                 } else {
                     self.inputs.push(Input::MousePos(lx, ly));
@@ -392,7 +510,21 @@ impl WindowHandler for Host {
                 }
             }
             MouseStatus::Drag => {
-                if let Some((sx, sy, start)) = self.drag_from {
+                if let Some((sx, sy, start, edges)) = self.resize_from {
+                    let (dx, dy) = (x - sx, y - sy);
+                    let (min_w, min_h) = (self.shared.borrow().min_width, MIN_FLOATING_SIZE.1);
+                    let mut r = start;
+                    if edges.left {
+                        r.left = (start.left + dx).min(start.right - min_w);
+                    }
+                    if edges.right {
+                        r.right = (start.right + dx).max(start.left + min_w);
+                    }
+                    if edges.bottom {
+                        r.bottom = (start.bottom + dy).min(start.top - min_h);
+                    }
+                    window.set_geometry(r);
+                } else if let Some((sx, sy, start)) = self.drag_from {
                     let (dx, dy) = (x - sx, y - sy);
                     window.set_geometry(Rect { left: start.left + dx, top: start.top + dy, right: start.right + dx, bottom: start.bottom + dy });
                 } else {
@@ -400,7 +532,9 @@ impl WindowHandler for Host {
                 }
             }
             MouseStatus::Up => {
-                if let Some((sx, sy, _)) = self.drag_from.take() {
+                if self.resize_from.take().is_some() {
+                    self.shared.borrow_mut().moved = true;
+                } else if let Some((sx, sy, _)) = self.drag_from.take() {
                     if (x - sx).abs() + (y - sy).abs() <= 3 {
                         // A click on the background rather than a drag: forward it to ImGui.
                         self.inputs.push(Input::MousePos(lx, ly));
@@ -412,9 +546,6 @@ impl WindowHandler for Host {
                 } else {
                     self.inputs.push(Input::MousePos(lx, ly));
                     self.inputs.push(Input::Button(false));
-                    if !is_panel {
-                        self.shared.borrow_mut().moved = true;
-                    }
                 }
             }
         }
@@ -425,7 +556,14 @@ impl WindowHandler for Host {
         self.hover_frame = self.frame;
         let (lx, ly) = self.to_local(window, x, y);
         self.inputs.push(Input::MousePos(lx, ly));
-        Cursor::Arrow
+        // Show where a press would resize (or what the current resize drag moves).
+        let edges = self.resize_from.map(|(.., edges)| edges).or_else(|| self.resize_edges(window, x, y));
+        match edges {
+            Some(e) if (e.left || e.right) && e.bottom => Cursor::FourArrows,
+            Some(e) if e.left || e.right => Cursor::LeftRight,
+            Some(_) => Cursor::UpDown,
+            None => Cursor::Arrow,
+        }
     }
 
     fn wheel(&mut self, window: WindowRef, x: i32, y: i32, axis: i32, clicks: i32) -> bool {
@@ -527,4 +665,16 @@ fn map_key(vk: u8) -> Option<Key> {
         sys::XPLM_VK_NEXT => Key::PageDown,
         _ => return None,
     })
+}
+
+/// Three short diagonal strokes in the bottom-right corner, so the window reads as resizable.
+/// Drawn in front, since the corner is partly outside the root window (the resize gutter).
+fn resize_grip(ui: &Ui, size: [f32; 2], scale: f32) {
+    let draw = ui.get_foreground_draw_list();
+    let color = [theme::TEXT_DIM[0], theme::TEXT_DIM[1], theme::TEXT_DIM[2], 0.45];
+    let (right, bottom) = (size[0] - 3.0 * scale, size[1] - 3.0 * scale);
+    for step in 1..=3 {
+        let d = 4.0 * scale * step as f32;
+        draw.add_line([right - d, bottom], [right, bottom - d], color).thickness(scale).build();
+    }
 }

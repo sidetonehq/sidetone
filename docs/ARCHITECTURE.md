@@ -21,7 +21,7 @@ how it is put together and the rules that keep it fast and safe inside the simul
    ┌────────────┼──────────────┬──────────────────────┬────────────────────┐
    ▼            ▼              ▼                      ▼                    ▼
 sidetone-ui  sidetone-core  sidetone-vatsim      sidetone-services   sidetone-xplm
-ImGui host   state, settings  data feed, naming,  SimBrief, Hoppie,   safe X-Plane
+ImGui host   state, settings  data feed, naming,  SimBrief,           safe X-Plane
 GL renderer  alerts, parsing  coverage, events    Keychain            SDK wrappers
    │                                                                       │
    └──────────────────────────────► sidetone-xplm ──► sidetone-xplm-sys (bindgen, SDK 4.3)
@@ -42,7 +42,7 @@ GL renderer  alerts, parsing  coverage, events    Keychain            SDK wrappe
 |---|---|---|
 | X-Plane main thread | draw callbacks, the 20 Hz flight loop, commands, menus | **Only this one** |
 | `sidetone-vatsim` worker | data feed + transceivers (15 s), METARs, events, stats, VATSpy and boundary downloads, route-ATC computation | No |
-| `sidetone-services` worker | Hoppie ACARS polling/sending, SimBrief import | No |
+| `sidetone-services` worker | SimBrief import | No |
 
 Workers never call the X-Plane SDK. They post events onto a channel (`sidetone_core::bus`);
 the flight loop drains it and applies the results to the single `Model` the screens read.
@@ -55,7 +55,7 @@ the plugin.
   panics, logs them (collapsing repeats) and returns a safe value.
 - Each screen's build function is guarded separately so a UI bug cannot leave a Dear ImGui
   frame half-open.
-- Secrets (Hoppie logon code, SimBrief username) are stored only in the macOS Keychain. The
+- Secrets (the SimBrief Pilot ID) are stored only in the macOS Keychain. The
   UI passes them in a `Redacted` wrapper whose `Debug` output never shows the value.
 
 ## Rendering
